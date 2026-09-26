@@ -29,7 +29,7 @@
 7. [Tech stack และเหตุผลที่เลือก](#-7-tech-stack-และเหตุผลที่เลือก)
 8. [โครงสร้าง repository](#-8-โครงสร้าง-repository)
 9. [เริ่มต้นใช้งาน (ทีละขั้น)](#-9-เริ่มต้นใช้งาน-ทีละขั้น)
-10. [ไฟล์ config สำคัญ](#-10-ไฟล์-config-สำคัญ)
+10. [Build checklist (สิ่งที่ต้องสร้างเอง)](#-10-build-checklist-สิ่งที่ต้องสร้างเอง)
 11. [REST API](#-11-rest-api)
 12. [Backend: อัลกอริทึมบีบไฟล์](#-12-backend-อัลกอริทึมบีบไฟล์)
 13. [Security และ PDPA](#-13-security-และ-pdpa)
@@ -118,6 +118,117 @@ flowchart LR
 
 **สรุปใน 1 ประโยค:** Jenkins ทำหน้าที่ *ตรวจและแพ็ก* โค้ด (CI) แล้วเขียนเวอร์ชันใหม่ลง Git จากนั้น Argo CD *อ่าน Git แล้วเอาขึ้นเว็บจริง* (CD) ส่วน Terraform เป็นคน *สร้างเครื่องและบริการ* บน AWS ทั้งหมด
 
+### 3.1 Diagram แบบละเอียด (แยกตาม tier)
+
+ภาพนี้คือ diagram ชุดเดิมของโปรเจกต์ที่แก้ให้ตรงกับสถาปัตยกรรมปัจจุบันแล้ว: ใช้ BuildKit แทน Kaniko, Argo CD แทน `kubectl rollout`, ไม่เปิด SSH และรวม frontend กับ backend ไว้ใน namespace เดียวกับ Ingress
+
+```mermaid
+flowchart TB
+%% ================= STYLES =================
+    classDef client fill:#0284c7,stroke:#38bdf8,stroke-width:2px,color:#ffffff
+    classDef cicd fill:#1e293b,stroke:#818cf8,stroke-width:2px,color:#ffffff
+    classDef gate fill:#7f1d1d,stroke:#f87171,stroke-width:2px,color:#ffffff
+    classDef cd fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#ffffff
+    classDef k8s fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff
+    classDef storage fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#ffffff
+    classDef security fill:#581c87,stroke:#c084fc,stroke-width:2px,color:#ffffff
+
+%% ================= 1. CLIENT & UI FLOW =================
+    subgraph CLIENT_TIER ["💻 Client & Frontend Tier"]
+        User(["👤 Job Applicant / End User"]):::client
+        subgraph NEXTJS_APP ["Next.js 14 Web Application (UI)"]
+            UI_Home["🏠 Drag & Drop File Upload"]:::client
+            UI_Presets["🎯 Presets Selector<br/>• OCSC 200x230 px, ≤ 100 KB, JPG<br/>• Passport 2x2 inch, white background<br/>• PDF Merger ≤ 500 KB"]:::client
+            UI_Crop["✂️ Crop & Rotate (locked ratio)"]:::client
+            UI_Preview["👁️ Before / After Preview & Download"]:::client
+        end
+    end
+
+%% ================= 2. CI/CD TIER =================
+    subgraph DEVOPS_TIER ["⚙️ CI/CD Automation Tier"]
+        Dev["👨‍💻 Developer"]:::cicd
+        GitHub["🐙 GitHub Monorepo<br/>/frontend /backend /k8s /iac"]:::cicd
+        subgraph JENKINS_NS ["Jenkins (namespace: jenkins)"]
+            Trigger["⚡ Webhook Receiver<br/>HMAC verified"]:::cicd
+            subgraph DYNAMIC_AGENT ["Ephemeral Agent Pod (spawn on demand)"]
+                Stage_Lint["1. Lint & Unit Test<br/>golangci-lint · go test -race · eslint"]:::cicd
+                Stage_Build["2. Build Image<br/>BuildKit rootless → .tar"]:::cicd
+                Stage_Scan{{"3. Security Gate<br/>Trivy: CRITICAL = fail"}}:::gate
+                Stage_Push["4. Push to ECR<br/>crane · tag = git SHA"]:::cicd
+                Stage_Tag["5. Update manifest tag<br/>commit with skip-ci marker"]:::cicd
+            end
+        end
+        subgraph ARGO_NS ["Argo CD (namespace: argocd)"]
+            Argo["🔄 GitOps Sync<br/>auto-prune · self-heal"]:::cd
+            Smoke{{"🧪 PostSync Smoke Test"}}:::gate
+        end
+    end
+
+%% ================= 3. AWS CLOUD & RUNTIME =================
+    subgraph AWS_CLOUD ["☁️ AWS Cloud (ap-southeast-1 Singapore)"]
+        subgraph IAC_BOX ["🏗️ Infrastructure as Code"]
+            Terraform["🟣 Terraform<br/>VPC · EC2 · S3 · ECR · IAM<br/>state: S3 + lockfile"]:::security
+        end
+        ECR[("📦 Amazon ECR<br/>thai-gov-backend · thai-gov-frontend<br/>IMMUTABLE · scan on push")]:::storage
+        subgraph EC2_INSTANCE ["🖥️ EC2 t3a.large (2 vCPU, 8 GB) · IMDSv2"]
+            SG["🛡️ Security Group<br/>80 / 443 public · 6443 admin IP only<br/>no SSH (use SSM)"]:::security
+            IAM["🔑 IAM Instance Profile<br/>ECR push/pull 2 repos · S3 one bucket"]:::security
+            subgraph K3S_CLUSTER ["☸️ K3s Single-Node Cluster"]
+                Traefik["🌐 Traefik Ingress :443<br/>TLS via cert-manager + Let's Encrypt"]:::k8s
+                subgraph NS_PROD ["Namespace: production"]
+                    FE_Svc["🔀 frontend Service :3000"]:::k8s
+                    UIPod["📱 Next.js Pods × 2"]:::k8s
+                    BE_Svc["🔀 backend Service :8080"]:::k8s
+                    subgraph PODS_HPA ["HPA: 2–4 pods at CPU 70%"]
+                        Pod1["⚡ Go Worker Pod 1<br/>bimg · pdfcpu"]:::k8s
+                        Pod2["⚡ Go Worker Pod 2"]:::k8s
+                    end
+                end
+            end
+        end
+        subgraph STORAGE_TIER ["🪣 Storage & Data Privacy"]
+            S3[("Amazon S3<br/>uploads/ · processed/")]:::storage
+            S3_Lifecycle["⏳ Lifecycle: expire after 1 day<br/>+ backend deletes originals<br/>(PDPA)"]:::security
+            S3 --- S3_Lifecycle
+        end
+    end
+
+%% ================= PIPELINE CONNECTIONS =================
+    Dev -->|"1 · git push / PR"| GitHub
+    GitHub -->|"2 · webhook"| Trigger
+    Trigger -->|"3 · spawn pod"| Stage_Lint
+    Stage_Lint --> Stage_Build --> Stage_Scan
+    Stage_Scan -->|"pass (main only)"| Stage_Push
+    Stage_Push -->|"push image"| ECR
+    Stage_Push --> Stage_Tag
+    Stage_Tag -->|"4 · commit new tag"| GitHub
+    Argo -->|"5 · watch repo"| GitHub
+    Argo -->|"6 · sync"| NS_PROD
+    Argo --> Smoke
+    Smoke -.->|"health + selftest"| BE_Svc
+    ECR -.->|"pull image"| NS_PROD
+
+%% ================= USER APPLICATION CONNECTIONS =================
+    User -->|"open website"| UI_Home
+    UI_Home --> UI_Presets --> UI_Crop
+    UI_Crop -->|"POST /api/v1/photos/preset"| Traefik
+    Traefik -->|"app.domain /"| FE_Svc
+    FE_Svc --> UIPod
+    Traefik -->|"app.domain /api"| BE_Svc
+    Traefik -->|"ci.domain"| Trigger
+    BE_Svc --> Pod1
+    BE_Svc --> Pod2
+    Pod1 -->|"store temp file"| S3
+    Pod2 -->|"store temp file"| S3
+    S3 -.->|"presigned URL (1 h)"| UI_Preview
+    UI_Preview -->|"download processed file"| User
+
+%% ================= IAC PROVISIONING =================
+    Terraform -.->|"provision"| EC2_INSTANCE
+    Terraform -.->|"provision"| S3
+    Terraform -.->|"provision"| ECR
+```
+
 ---
 
 ## 🔁 4. CI/CD pipeline แบบละเอียด
@@ -128,7 +239,7 @@ flowchart LR
 flowchart TB
     subgraph L1["① Developer & GitHub"]
         direction LR
-        a1["สร้าง branch<br/><code>feat/*</code>"] --> a2["commit & push"] --> a3["เปิด Pull Request<br/>(branch protection)"] --> a4["GitHub webhook<br/>ลงนามด้วย HMAC secret"]
+        a1["สร้าง branch<br/>feat/*"] --> a2["commit & push"] --> a3["เปิด Pull Request<br/>(branch protection)"] --> a4["GitHub webhook<br/>ลงนามด้วย HMAC secret"]
     end
 
     subgraph L2["② CI · PR pipeline (ตรวจอย่างเดียว ไม่ deploy)"]
@@ -365,7 +476,7 @@ flowchart LR
 | `s3.tf` | bucket ไฟล์ผู้ใช้, block public access, SSE, lifecycle 1 วัน |
 | `outputs.tf` | public IP, ชื่อ bucket, ECR URL |
 
-ตัวอย่างโค้ดเต็มอยู่ใน [หัวข้อ 10.6](#106-terraform)
+สิ่งที่แต่ละไฟล์ต้องมีอยู่ใน [Build checklist Phase 1](#phase-1--terraform)
 
 ---
 
@@ -437,919 +548,179 @@ thai-gov-processor/
 
 ## 🚀 9. เริ่มต้นใช้งาน (ทีละขั้น)
 
+> README นี้**ตั้งใจไม่ใส่โค้ด** ส่วนนี้บอกแค่ลำดับขั้นและเป้าหมายของแต่ละขั้น ตัวโค้ดให้เขียนเองตาม [Build checklist ในหัวข้อ 10](#-10-build-checklist-สิ่งที่ต้องสร้างเอง)
+
 ### 9.0 สิ่งที่ต้องมี
 
 - AWS account + AWS CLI v2 ที่ login แล้ว
-- Terraform ≥ 1.10 (ใช้ `use_lockfile` ของ S3 backend)
+- Terraform ≥ 1.10 (ต้องการฟีเจอร์ `use_lockfile` ของ S3 backend)
 - Session Manager plugin ของ AWS CLI
-- Domain ที่ชี้ DNS ได้ (หรือใช้ `sslip.io` ระหว่างทดสอบ)
+- Domain ที่ตั้งค่า DNS ได้ (หรือใช้ `sslip.io` ระหว่างทดสอบ)
 - Docker สำหรับรันบนเครื่องตัวเอง
 
-### 9.1 รันบนเครื่องตัวเอง
+### 9.1 รันบนเครื่องตัวเองให้ได้ก่อน
 
-```bash
-git clone https://github.com/<OWNER>/thai-gov-processor.git
-cd thai-gov-processor
-docker compose up --build
-# frontend: http://localhost:3000   backend: http://localhost:8080/healthz
-```
+ใช้ Docker Compose รัน frontend, backend และ MinIO (ใช้แทน S3) ในเครื่องเดียว
+**เป้าหมาย:** เปิด `localhost:3000` แล้วแปลงรูป ก.พ. ได้จริงโดยยังไม่แตะ AWS
 
-`docker-compose.yml` ใช้ MinIO แทน S3 จึงไม่ต้องใช้ AWS ตอนพัฒนา
+### 9.2 เตรียม state bucket (ทำด้วยมือครั้งเดียว)
 
-### 9.2 สร้าง state bucket (ทำครั้งเดียว)
-
-```bash
-aws s3api create-bucket --bucket <STATE_BUCKET> --region ap-southeast-1 \
-  --create-bucket-configuration LocationConstraint=ap-southeast-1
-aws s3api put-bucket-versioning --bucket <STATE_BUCKET> \
-  --versioning-configuration Status=Enabled
-```
+สร้าง S3 bucket สำหรับเก็บ Terraform state แล้วเปิด versioning
+**ทำไมต้องทำด้วยมือ:** Terraform ต้องมีที่เก็บ state ก่อนจะเริ่มทำงานได้ จึงใช้ Terraform สร้าง bucket นี้เองไม่ได้ (ปัญหาไก่กับไข่)
 
 ### 9.3 สร้าง infrastructure
 
-```bash
-cd iac
-cp terraform.tfvars.example terraform.tfvars   # ใส่ admin_cidr = "<IP ของคุณ>/32"
-terraform init
-terraform plan
-terraform apply
-terraform output
-```
+ใส่ IP ของตัวเองในไฟล์ `terraform.tfvars` จากนั้นรัน `init` → `plan` (อ่านให้เข้าใจว่าจะสร้างอะไร) → `apply`
+**เป้าหมาย:** รัน `plan` ซ้ำหลัง apply แล้วต้องขึ้นว่า *No changes*
 
 ### 9.4 เข้าเครื่องและติดตั้ง platform
 
-```bash
-aws ssm start-session --target $(terraform output -raw instance_id)
-# บนเครื่อง:
-sudo bash /opt/bootstrap/bootstrap-cluster.sh
-```
+เข้าเครื่องผ่าน SSM Session Manager (ไม่ใช้ SSH) แล้วติดตั้งตามลำดับนี้
 
-สคริปต์จะติดตั้งตามลำดับนี้
-
-1. **ecr-credential-provider** ให้ K3s ดึง image จาก ECR ได้ (token ของ ECR อายุแค่ 12 ชม. provider จะขอใหม่ให้เอง)
-2. **cert-manager** + `ClusterIssuer` ของ Let's Encrypt
-3. **Argo CD** + `Application` ที่ชี้ไปที่ `k8s/overlays/prod`
-4. **Jenkins** ผ่าน Helm ด้วย `k8s/platform/jenkins-values.yaml`
+1. **ecr-credential-provider** ให้ K3s ดึง image จาก ECR ได้ตลอด เพราะ token ของ ECR อายุแค่ 12 ชม.
+2. **cert-manager** + ClusterIssuer ของ Let's Encrypt
+3. **Argo CD** + Application ที่ชี้ไปที่ `k8s/overlays/prod`
+4. **Jenkins** ผ่าน Helm chart ทางการ
 
 ### 9.5 ตั้งค่า GitHub
 
 | ตั้งค่า | ค่า |
 | --- | --- |
-| Branch protection (`main`) | ต้องผ่าน PR, ต้องผ่าน status check `continuous-integration/jenkins/pr-merge`, ห้าม force push |
-| Webhook | `https://ci.example.com/github-webhook/`, content type JSON, ใส่ secret |
-| Fine-grained token (สำหรับ Jenkins) | เฉพาะ repo นี้: Contents (read/write), Pull requests (read), Commit statuses (read/write) |
-| Deploy key (สำหรับ Argo CD) | read-only |
+| Branch protection (`main`) | ต้องผ่าน PR, ต้องผ่าน status check ของ Jenkins, ห้าม force push |
+| Webhook | ชี้ไปที่ `https://ci.<domain>/github-webhook/`, content type JSON, ตั้ง secret |
+| Fine-grained token (ให้ Jenkins) | เฉพาะ repo นี้: Contents (read/write), Pull requests (read), Commit statuses (read/write) |
+| Deploy key (ให้ Argo CD) | read-only |
 
 ### 9.6 ตั้งค่า Jenkins Credentials
 
 | ID | ชนิด | ใช้ทำอะไร |
 | --- | --- | --- |
-| `github-app-token` | Username with password (`x-access-token` / token) | สแกน repo และ push commit tag |
+| `github-app-token` | Username with password | สแกน repo และ push commit ที่แก้ tag |
 | `github-webhook-secret` | Secret text | ตรวจลายเซ็น webhook |
 | `discord-webhook` | Secret text | ส่งแจ้งเตือน |
 | `aws-tf-readonly` | Username with password (access key / secret) | `terraform plan` และ drift detect (สิทธิ์ ReadOnlyAccess) |
 
-จากนั้นสร้าง **Multibranch Pipeline** ชี้ไปที่ repo นี้ และเปิด "Discover pull requests from origin"
+จากนั้นสร้าง **Multibranch Pipeline** ชี้มาที่ repo นี้ และเปิดตัวเลือก "Discover pull requests from origin"
 
 ### 9.7 Deploy ครั้งแรก
 
-เปิด PR เล็กๆ รอให้ขึ้น ✔ แล้ว merge ดูผลที่ Jenkins → Argo CD → `https://app.example.com`
+เปิด PR เล็กๆ รอให้ขึ้น ✔ แล้ว merge จากนั้นดูต่อที่ Jenkins → Argo CD → เว็บจริง
 
 ### 9.8 ลบทิ้งหลังเดโม
 
-```bash
-cd iac && terraform destroy
-```
+`terraform destroy` ทันทีที่เดโมเสร็จ state bucket จะยังอยู่ ครั้งหน้า apply ใหม่ได้เลย
 
 ---
 
-## 🧩 10. ไฟล์ config สำคัญ
+## 🧩 10. Build checklist (สิ่งที่ต้องสร้างเอง)
 
-### 10.1 `Jenkinsfile`
+แต่ละข้อบอกว่า **ต้องทำอะไรได้**, **คำใบ้** และ **วิธีเช็คว่าทำถูก** ทำเสร็จข้อไหนให้ติ๊ก `[x]` ใน README นี้ได้เลย ส่วนนี้จะกลายเป็นบันทึกความคืบหน้าของโปรเจกต์ไปในตัว
 
-```groovy
-pipeline {
-  agent {
-    kubernetes {
-      yamlFile 'ci/agent-pod.yaml'
-      defaultContainer 'tools'
-    }
-  }
-
-  options {
-    timeout(time: 30, unit: 'MINUTES')
-    disableConcurrentBuilds()
-    buildDiscarder(logRotator(numToKeepStr: '30'))
-  }
-
-  environment {
-    AWS_REGION    = 'ap-southeast-1'
-    ECR_REGISTRY  = '<ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com'
-    BACKEND_REPO  = "${ECR_REGISTRY}/thai-gov-backend"
-    FRONTEND_REPO = "${ECR_REGISTRY}/thai-gov-frontend"
-    DOCKER_CONFIG = "${WORKSPACE}/.docker"
-  }
-
-  stages {
-    stage('Prepare') {
-      steps {
-        scmSkip(deleteBuild: true, skipPattern: '.*\\[skip ci\\].*')
-        sh '''
-          apk add --no-cache git yq curl >/dev/null
-          git config --global --add safe.directory '*'
-        '''
-        script {
-          env.TAG = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
-        }
-      }
-    }
-
-    stage('Lint & Test') {
-      parallel {
-        stage('Backend') {
-          steps {
-            container('golang') {
-              dir('backend') {
-                sh '''
-                  apt-get update -qq && apt-get install -y -qq --no-install-recommends libvips-dev >/dev/null
-                  curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin v1.59.1
-                  go vet ./...
-                  golangci-lint run ./...
-                  go test -race -coverprofile=coverage.out ./...
-                  go tool cover -func=coverage.out | tail -1
-                '''
-              }
-            }
-          }
-        }
-        stage('Frontend') {
-          steps {
-            container('node') {
-              dir('frontend') {
-                sh '''
-                  npm ci
-                  npm run lint
-                  npx tsc --noEmit
-                  npm test --if-present
-                '''
-              }
-            }
-          }
-        }
-      }
-    }
-
-    stage('Build images') {
-      steps {
-        container('buildkit') {
-          sh '''
-            for svc in backend frontend; do
-              repo=$([ "$svc" = backend ] && echo "$BACKEND_REPO" || echo "$FRONTEND_REPO")
-              buildctl-daemonless.sh build \
-                --frontend dockerfile.v0 \
-                --local context=$svc --local dockerfile=$svc \
-                --output type=docker,name=$repo:$TAG,dest=$svc.tar
-            done
-          '''
-        }
-      }
-    }
-
-    stage('Security gate') {
-      steps {
-        container('trivy') {
-          sh '''
-            trivy fs --scanners vuln,secret --severity CRITICAL --exit-code 1 --no-progress .
-            trivy image --input backend.tar  --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress
-            trivy image --input frontend.tar --severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress
-          '''
-        }
-      }
-    }
-
-    stage('Terraform plan') {
-      when { allOf { changeRequest(); changeset 'iac/**' } }
-      steps {
-        container('terraform') {
-          withCredentials([usernamePassword(credentialsId: 'aws-tf-readonly',
-                           usernameVariable: 'AWS_ACCESS_KEY_ID',
-                           passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-            sh '''
-              set -o pipefail
-              terraform -chdir=iac init -input=false
-              terraform -chdir=iac fmt -check -recursive
-              terraform -chdir=iac validate
-              terraform -chdir=iac plan -input=false -lock=false -no-color | tee tfplan.txt
-            '''
-          }
-        }
-      }
-      post { always { archiveArtifacts artifacts: 'tfplan.txt', allowEmptyArchive: true } }
-    }
-
-    stage('Push to ECR') {
-      when { branch 'main' }
-      steps {
-        container('aws') {
-          sh '''
-            mkdir -p "$DOCKER_CONFIG"
-            TOKEN=$(aws ecr get-login-password --region "$AWS_REGION")
-            AUTH=$(printf 'AWS:%s' "$TOKEN" | base64 | tr -d '\\n')
-            printf '{"auths":{"%s":{"auth":"%s"}}}' "$ECR_REGISTRY" "$AUTH" > "$DOCKER_CONFIG/config.json"
-          '''
-        }
-        container('crane') {
-          sh '''
-            crane push backend.tar  "$BACKEND_REPO:$TAG"
-            crane push frontend.tar "$FRONTEND_REPO:$TAG"
-          '''
-        }
-      }
-    }
-
-    stage('Update manifest') {
-      when { branch 'main' }
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'github-app-token',
-                         usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
-          sh '''
-            cd k8s/overlays/prod
-            yq -i '(.images[] | select(.name == "backend")).newTag  = strenv(TAG)' kustomization.yaml
-            yq -i '(.images[] | select(.name == "frontend")).newTag = strenv(TAG)' kustomization.yaml
-            cd -
-            git config user.name  "jenkins-bot"
-            git config user.email "jenkins-bot@users.noreply.github.com"
-            git add k8s/overlays/prod/kustomization.yaml
-            git commit -m "deploy: $TAG [skip ci]"
-            git push "https://x-access-token:${GH_TOKEN}@github.com/<OWNER>/thai-gov-processor.git" HEAD:main
-          '''
-        }
-      }
-    }
-  }
-
-  post {
-    success {
-      withCredentials([string(credentialsId: 'discord-webhook', variable: 'DISCORD_URL')]) {
-        sh 'curl -fsS -F "content=✅ ${JOB_NAME} #${BUILD_NUMBER} (${TAG}) ผ่าน" "$DISCORD_URL"'
-      }
-    }
-    failure {
-      withCredentials([string(credentialsId: 'discord-webhook', variable: 'DISCORD_URL')]) {
-        sh 'curl -fsS -F "content=❌ ${JOB_NAME} #${BUILD_NUMBER} ล้มเหลว ${BUILD_URL}" "$DISCORD_URL"'
-      }
-    }
-    always { cleanWs() }
-  }
-}
+```mermaid
+flowchart LR
+    p0["Phase 0<br/>App MVP"] --> p1["Phase 1<br/>Terraform"] --> p2["Phase 2<br/>Cluster platform"] --> p3["Phase 3<br/>K8s manifests"] --> p4["Phase 4<br/>Jenkins CI"] --> p5["Phase 5<br/>Argo CD"] --> p6["Phase 6<br/>Drift + extras"]
 ```
 
-> **Plugin ที่ต้องมี:** Kubernetes, Pipeline, Git, GitHub Branch Source, Credentials Binding, SCM Skip, Workspace Cleanup, Pipeline Stage View
-
-### 10.2 `ci/agent-pod.yaml`
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    role: jenkins-agent
-spec:
-  serviceAccountName: jenkins-agent        # ไม่มีสิทธิ์ใน namespace production
-  containers:
-    - name: tools
-      image: alpine:3.20
-      command: ["cat"]
-      tty: true
-    - name: golang
-      image: golang:1.22-bookworm
-      command: ["cat"]
-      tty: true
-      resources:
-        requests: { cpu: "500m", memory: "512Mi" }
-        limits:   { cpu: "1500m", memory: "1536Mi" }
-    - name: node
-      image: node:20-bookworm-slim
-      command: ["cat"]
-      tty: true
-      resources:
-        requests: { cpu: "250m", memory: "512Mi" }
-        limits:   { cpu: "1000m", memory: "1536Mi" }
-    - name: buildkit
-      image: moby/buildkit:v0.15.1-rootless
-      command: ["cat"]
-      tty: true
-      env:
-        - name: BUILDKITD_FLAGS
-          value: --oci-worker-no-process-sandbox
-      securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
-        seccompProfile:  { type: Unconfined }
-        appArmorProfile: { type: Unconfined }
-      resources:
-        limits: { cpu: "2000m", memory: "3Gi" }
-    - name: trivy
-      image: aquasec/trivy:0.54.1
-      command: ["cat"]
-      tty: true
-    - name: terraform
-      image: hashicorp/terraform:1.9
-      command: ["cat"]
-      tty: true
-    - name: aws
-      image: amazon/aws-cli:2.17.0
-      command: ["cat"]
-      tty: true
-    - name: crane
-      image: gcr.io/go-containerregistry/crane:debug
-      command: ["cat"]
-      tty: true
-```
-
-> **ปรับเวอร์ชันของ image ทุกตัวให้เป็นเวอร์ชันล่าสุดที่คุณทดสอบแล้ว** ห้ามใช้ `latest` ใน CI เพราะผลลัพธ์จะเปลี่ยนไปเองโดยไม่รู้ตัว
-
-### 10.3 Kubernetes manifests
-
-**`k8s/base/backend-deployment.yaml`**
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: backend
-  labels: { app: backend }
-spec:
-  replicas: 2
-  revisionHistoryLimit: 5
-  progressDeadlineSeconds: 180
-  strategy:
-    type: RollingUpdate
-    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
-  selector:
-    matchLabels: { app: backend }
-  template:
-    metadata:
-      labels: { app: backend }
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-      containers:
-        - name: backend
-          image: backend                    # kustomize แทนค่าเป็น ECR:tag
-          ports: [{ containerPort: 8080 }]
-          env:
-            - { name: AWS_REGION, value: ap-southeast-1 }
-            - { name: S3_BUCKET,  valueFrom: { configMapKeyRef: { name: app-config, key: s3_bucket } } }
-            - { name: PRESIGN_TTL, value: "1h" }
-          readinessProbe:
-            httpGet: { path: /healthz, port: 8080 }
-            periodSeconds: 5
-          livenessProbe:
-            httpGet: { path: /healthz, port: 8080 }
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          resources:
-            requests: { cpu: "250m", memory: "256Mi" }
-            limits:   { cpu: "1",    memory: "512Mi" }
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities: { drop: ["ALL"] }
-          volumeMounts:
-            - { name: tmp, mountPath: /tmp }
-      volumes:
-        - { name: tmp, emptyDir: { sizeLimit: 256Mi } }
-```
-
-**`k8s/base/backend-hpa.yaml`**
-
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: backend
-spec:
-  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: backend }
-  minReplicas: 2
-  maxReplicas: 4
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target: { type: Utilization, averageUtilization: 70 }
-```
-
-**`k8s/base/ingress.yaml`** (frontend และ backend อยู่ namespace เดียวกับ Ingress)
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: app
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-spec:
-  ingressClassName: traefik
-  tls:
-    - hosts: [app.example.com]
-      secretName: app-tls
-  rules:
-    - host: app.example.com
-      http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend: { service: { name: backend, port: { number: 8080 } } }
-          - path: /
-            pathType: Prefix
-            backend: { service: { name: frontend, port: { number: 3000 } } }
-```
-
-**`k8s/base/smoke-test.yaml`**
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  generateName: smoke-test-
-  annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-spec:
-  backoffLimit: 2
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: curl
-          image: curlimages/curl:8.9.1
-          command: ["sh", "-c"]
-          args:
-            - |
-              set -e
-              curl -fsS http://backend:8080/healthz
-              curl -fsS http://backend:8080/api/v1/selftest
-              curl -fsS http://frontend:3000/ >/dev/null
-              echo "smoke test passed"
-```
-
-**`k8s/overlays/prod/kustomization.yaml`** (Jenkins แก้ `newTag` ที่ไฟล์นี้)
-
-```yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-namespace: production
-resources:
-  - ../../base
-images:
-  - name: backend
-    newName: <ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-backend
-    newTag: a1b2c3d
-  - name: frontend
-    newName: <ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-frontend
-    newTag: a1b2c3d
-```
-
-### 10.4 `k8s/argocd/application.yaml`
-
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: thai-gov-processor
-  namespace: argocd
-  annotations:
-    notifications.argoproj.io/subscribe.on-deployed.discord: ""
-    notifications.argoproj.io/subscribe.on-sync-failed.discord: ""
-spec:
-  project: default
-  source:
-    repoURL: git@github.com:<OWNER>/thai-gov-processor.git
-    targetRevision: main
-    path: k8s/overlays/prod
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: production
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-```
-
-> **Argo CD ไม่ rollback ให้เองเมื่อ smoke test ไม่ผ่าน** มันจะแจ้ง sync failed แล้วเราทำ `git revert` ส่วนระหว่าง rolling update ถ้า pod ใหม่ไม่ ready ตัว Deployment จะไม่ลบ pod เก่า เว็บจึงไม่ล่ม ถ้าต้องการ rollback อัตโนมัติเต็มรูปแบบ ดู Argo Rollouts ใน roadmap
-
-### 10.5 `k8s/platform/credential-provider.yaml`
-
-วางไฟล์นี้ไว้ที่ `/var/lib/rancher/credentialprovider/config.yaml` และวาง binary `ecr-credential-provider` (จาก `kubernetes/cloud-provider-aws`) ไว้ที่ `/var/lib/rancher/credentialprovider/bin/` ซึ่งเป็น path เริ่มต้นที่ K3s ใช้หา credential provider
-
-```yaml
-apiVersion: kubelet.config.k8s.io/v1
-kind: CredentialProviderConfig
-providers:
-  - name: ecr-credential-provider
-    matchImages:
-      - "*.dkr.ecr.*.amazonaws.com"
-    defaultCacheDuration: "12h"
-    apiVersion: credentialprovider.kubelet.k8s.io/v1
-```
-
-### 10.6 Terraform
-
-**`iac/versions.tf`**
-
-```hcl
-terraform {
-  required_version = ">= 1.10.0"
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.60" }
-  }
-  backend "s3" {
-    bucket       = "<STATE_BUCKET>"
-    key          = "thai-gov-processor/terraform.tfstate"
-    region       = "ap-southeast-1"
-    encrypt      = true
-    use_lockfile = true
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-  default_tags {
-    tags = { Project = "thai-gov-processor", ManagedBy = "terraform" }
-  }
-}
-```
-
-**`iac/variables.tf`**
-
-```hcl
-variable "aws_region"    { default = "ap-southeast-1" }
-variable "instance_type" { default = "t3a.large" }
-variable "admin_cidr" {
-  description = "IP ของผู้ดูแลที่เข้า K3s API ได้ เช่น 203.0.113.10/32"
-  type        = string
-}
-```
-
-**`iac/network.tf`**
-
-```hcl
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-}
-
-resource "aws_internet_gateway" "main" { vpc_id = aws_vpc.main.id }
-
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = false
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
-}
-```
-
-**`iac/security_group.tf`**
-
-```hcl
-resource "aws_security_group" "k3s" {
-  name   = "k3s-node"
-  vpc_id = aws_vpc.main.id
-
-  ingress {
-    description = "HTTP (redirect to HTTPS + ACME challenge)"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "K3s API - admin only"
-    from_port   = 6443
-    to_port     = 6443
-    protocol    = "tcp"
-    cidr_blocks = [var.admin_cidr]
-  }
-
-  # ไม่เปิด port 22: เข้าเครื่องผ่าน SSM Session Manager
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-```
-
-**`iac/iam.tf`**
-
-```hcl
-data "aws_iam_policy_document" "assume_ec2" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "node" {
-  name               = "k3s-node-role"
-  assume_role_policy = data.aws_iam_policy_document.assume_ec2.json
-}
-
-data "aws_iam_policy_document" "node" {
-  statement {
-    sid       = "EcrAuth"
-    actions   = ["ecr:GetAuthorizationToken"]
-    resources = ["*"]
-  }
-  statement {
-    sid = "EcrPushPull"
-    actions = [
-      "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
-      "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage",
-    ]
-    resources = [aws_ecr_repository.backend.arn, aws_ecr_repository.frontend.arn]
-  }
-  statement {
-    sid       = "UserFiles"
-    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.files.arn}/*"]
-  }
-}
-
-resource "aws_iam_role_policy" "node" {
-  role   = aws_iam_role.node.id
-  policy = data.aws_iam_policy_document.node.json
-}
-
-resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.node.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_instance_profile" "node" {
-  name = "k3s-node-profile"
-  role = aws_iam_role.node.name
-}
-```
-
-**`iac/ec2.tf`**
-
-```hcl
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
-  }
-}
-
-resource "aws_eip" "k3s" { domain = "vpc" }
-
-resource "aws_instance" "k3s" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.k3s.id]
-  iam_instance_profile   = aws_iam_instance_profile.node.name
-
-  metadata_options {
-    http_tokens                 = "required" # บังคับ IMDSv2
-    http_put_response_hop_limit = 2          # ให้ pod ใช้ IAM role ของเครื่องได้
-  }
-
-  root_block_device {
-    volume_size = 35
-    volume_type = "gp3"
-    encrypted   = true
-  }
-
-  user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
-    public_ip = aws_eip.k3s.public_ip
-  })
-
-  tags = { Name = "k3s-thai-gov-processor" }
-}
-
-resource "aws_eip_association" "k3s" {
-  instance_id   = aws_instance.k3s.id
-  allocation_id = aws_eip.k3s.id
-}
-```
-
-**`iac/templates/user_data.sh.tftpl`**
-
-```bash
-#!/bin/bash
-set -euo pipefail
-apt-get update -y
-apt-get install -y curl git
-
-curl -sfL https://get.k3s.io | \
-  INSTALL_K3S_EXEC="server --tls-san ${public_ip} --write-kubeconfig-mode 600" sh -
-
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-```
-
-**`iac/ecr.tf`**
-
-```hcl
-locals { repos = { backend = "thai-gov-backend", frontend = "thai-gov-frontend" } }
-
-resource "aws_ecr_repository" "backend" {
-  name                 = local.repos.backend
-  image_tag_mutability = "IMMUTABLE"
-  force_delete         = true
-  image_scanning_configuration { scan_on_push = true }
-}
-
-resource "aws_ecr_repository" "frontend" {
-  name                 = local.repos.frontend
-  image_tag_mutability = "IMMUTABLE"
-  force_delete         = true
-  image_scanning_configuration { scan_on_push = true }
-}
-
-resource "aws_ecr_lifecycle_policy" "keep_last_10" {
-  for_each   = { backend = aws_ecr_repository.backend.name, frontend = aws_ecr_repository.frontend.name }
-  repository = each.value
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "keep last 10 images"
-      selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 10 }
-      action       = { type = "expire" }
-    }]
-  })
-}
-```
-
-**`iac/s3.tf`**
-
-```hcl
-resource "aws_s3_bucket" "files" {
-  bucket_prefix = "thai-gov-files-"
-  force_destroy = true
-}
-
-resource "aws_s3_bucket_public_access_block" "files" {
-  bucket                  = aws_s3_bucket.files.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
-  rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
-  }
-}
-
-resource "aws_s3_bucket_lifecycle_configuration" "files" {
-  bucket = aws_s3_bucket.files.id
-  rule {
-    id     = "expire-user-files"
-    status = "Enabled"
-    filter {}
-    expiration { days = 1 }
-    abort_incomplete_multipart_upload { days_after_initiation = 1 }
-  }
-}
-```
-
-**`iac/outputs.tf`**
-
-```hcl
-output "instance_id"  { value = aws_instance.k3s.id }
-output "public_ip"    { value = aws_eip.k3s.public_ip }
-output "files_bucket" { value = aws_s3_bucket.files.bucket }
-output "ecr_backend"  { value = aws_ecr_repository.backend.repository_url }
-output "ecr_frontend" { value = aws_ecr_repository.frontend.repository_url }
-```
-
-**`ci/Jenkinsfile.drift`** (job ตั้งเวลาทุกคืน)
-
-```groovy
-pipeline {
-  agent { kubernetes { yamlFile 'ci/agent-pod.yaml'; defaultContainer 'terraform' } }
-  triggers { cron('TZ=Asia/Bangkok\nH 2 * * *') }
-  stages {
-    stage('Drift detect') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'aws-tf-readonly',
-                         usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          script {
-            sh 'terraform -chdir=iac init -input=false'
-            def code = sh(script: 'terraform -chdir=iac plan -input=false -lock=false -detailed-exitcode',
-                          returnStatus: true)
-            if (code == 2) { unstable('พบ drift: มีการแก้ AWS นอก Terraform') }
-            else if (code != 0) { error('terraform plan ล้มเหลว') }
-          }
-        }
-      }
-    }
-  }
-  post {
-    unstable {
-      withCredentials([string(credentialsId: 'discord-webhook', variable: 'DISCORD_URL')]) {
-        container('tools') {
-          sh 'apk add --no-cache curl >/dev/null && curl -fsS -F "content=⚠️ Terraform drift detected ${BUILD_URL}" "$DISCORD_URL"'
-        }
-      }
-    }
-  }
-}
-```
-
-### 10.7 `k8s/platform/jenkins-values.yaml` (ย่อ)
-
-```yaml
-controller:
-  resources:
-    requests: { cpu: "500m", memory: "1Gi" }
-    limits:   { cpu: "1",    memory: "2Gi" }
-  javaOpts: "-Xmx1g"
-  installPlugins:
-    - kubernetes
-    - workflow-aggregator
-    - git
-    - github-branch-source
-    - credentials-binding
-    - configuration-as-code
-    - pipeline-stage-view
-    - scm-skip
-    - ws-cleanup
-  ingress:
-    enabled: true
-    ingressClassName: traefik
-    hostName: ci.example.com
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-    tls:
-      - hosts: [ci.example.com]
-        secretName: jenkins-tls
-persistence:
-  size: 10Gi
-serviceAccountAgent:
-  create: true
-  name: jenkins-agent
-```
-
-### 10.8 Dockerfile ของ backend
-
-```dockerfile
-FROM golang:1.22-bookworm AS build
-RUN apt-get update && apt-get install -y --no-install-recommends libvips-dev \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/api ./cmd/api
-
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends libvips42 ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && useradd -r -u 10001 -s /usr/sbin/nologin app
-COPY --from=build /out/api /usr/local/bin/api
-USER 10001
-EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/api"]
-```
+### Phase 0 · App MVP (ใช้เวลากับส่วนนี้ไม่เกิน 30% ของทั้งโปรเจกต์)
+
+- [ ] **Backend: endpoint ครบ 4 ตัว** ได้แก่ `/healthz`, `/api/v1/presets`, `/api/v1/photos/preset`, `/api/v1/selftest`
+  - คำใบ้: ทำ preset ก.พ. ให้ใช้ได้ก่อนตัวเดียว ตัวอื่นค่อยเพิ่มทีหลัง
+  - เช็ค: ส่งรูป 3 MB เข้าไปแล้วได้ไฟล์ 200×230 ที่ ≤ 100 KB กลับมา
+- [ ] **Unit test ของ processor** อย่างน้อย 3 กรณี: รูปใหญ่, รูปเล็กอยู่แล้ว และรูปที่บีบให้ต่ำกว่าเกณฑ์ไม่ได้
+  - เช็ค: test ผ่านเมื่อรันพร้อม race detector
+- [ ] **Backend Dockerfile** แบบ multi-stage และ runtime รันด้วย user ที่ไม่ใช่ root
+  - คำใบ้: bimg ใช้ cgo จึงต้องมี libvips แบบ dev ใน stage build และแบบ runtime ใน stage สุดท้าย
+  - เช็ค: image สุดท้ายเล็กกว่า image ของ stage build อย่างเห็นได้ชัด และ `whoami` ใน container ไม่ใช่ root
+- [ ] **Frontend แบบเรียบง่าย** มีหน้า upload, ตัวเลือก preset และปุ่มดาวน์โหลด (cropper ค่อยเพิ่มทีหลัง)
+  - คำใบ้: ให้เบราว์เซอร์เรียก `/api/...` ตรง ไม่ต้องทำ proxy route ใน Next.js เพราะ Ingress จะแยก path ให้
+- [ ] **Docker Compose** รัน 3 service ได้แก่ frontend, backend และ MinIO
+
+### Phase 1 · Terraform
+
+- [ ] **Remote state** เก็บบน S3 เปิด encrypt และ `use_lockfile`
+- [ ] **Network**: VPC, public subnet, Internet Gateway และ route table
+- [ ] **Security group**: เปิด 80/443 ให้ทุกที่, 6443 เฉพาะ IP ตัวเอง, **ไม่เปิด 22**
+- [ ] **IAM**: role + instance profile ที่ให้สิทธิ์เฉพาะ ECR 2 repo, S3 bucket เดียว และ SSM
+  - คำใบ้: `ecr:GetAuthorizationToken` ต้องใช้ resource `*` ส่วน action อื่นให้จำกัดเฉพาะ ARN ของ repo
+- [ ] **EC2**: หา AMI ด้วย data source แทนการเขียน ID ตายตัว, บังคับ IMDSv2, เข้ารหัส EBS, ใช้ Elastic IP
+  - คำใบ้: ตั้ง hop limit ของ metadata เป็น 2 ไม่อย่างนั้น pod จะใช้ IAM role ของเครื่องไม่ได้
+  - คำใบ้: ส่ง IP ของ Elastic IP เข้าไปใน user_data ผ่าน template ไม่ต้องไปอ่านจาก metadata ตอนบูต
+- [ ] **ECR**: 2 repo แบบ IMMUTABLE, scan on push และ lifecycle policy เก็บ 10 image ล่าสุด
+- [ ] **S3 ไฟล์ผู้ใช้**: block public access, SSE, lifecycle หมดอายุ 1 วัน และลบ multipart upload ที่ค้าง
+- [ ] **Outputs**: instance id, public IP, ชื่อ bucket และ URL ของ ECR
+- เช็คทั้ง phase: `terraform fmt -check` และ `validate` ผ่าน, apply แล้ว plan ซ้ำต้องขึ้น *No changes*, destroy แล้ว apply ใหม่ต้องได้ระบบเดิม
+
+### Phase 2 · Cluster platform
+
+- [ ] **K3s** ติดตั้งผ่าน user_data ใส่ Elastic IP ไว้ใน TLS SAN
+  - เช็ค: ใช้ `kubectl` จากเครื่องตัวเองผ่าน port 6443 ได้ และจาก IP อื่นเข้าไม่ได้
+- [ ] **ecr-credential-provider**
+  - คำใบ้: K3s หา binary และ config ของ credential provider ใน `/var/lib/rancher/credentialprovider/` เป็นค่าเริ่มต้น
+  - เช็ค: pod ยังดึง image จาก ECR ได้หลังผ่านไปเกิน 12 ชม.
+- [ ] **cert-manager + ClusterIssuer** ของ Let's Encrypt แบบ HTTP-01
+  - คำใบ้: ทดสอบกับ staging issuer ก่อน เพื่อไม่ให้ชน rate limit
+  - เช็ค: เบราว์เซอร์ขึ้นแม่กุญแจ และ cert ออกโดย Let's Encrypt
+- [ ] **Argo CD** ติดตั้งและเข้า UI ได้
+- [ ] **Jenkins** ติดตั้งด้วย Helm ตั้ง resource limit ของ controller, PVC 10 GB และติดตั้ง plugin ที่ต้องใช้ (Kubernetes, GitHub Branch Source, Credentials Binding, SCM Skip, Workspace Cleanup)
+
+### Phase 3 · Kubernetes manifests (Kustomize)
+
+- [ ] **Deployment ของ backend และ frontend**
+  - readinessProbe และ livenessProbe ที่ `/healthz`
+  - rolling update แบบ `maxSurge: 1` / `maxUnavailable: 0`
+  - รันแบบ non-root, root filesystem เป็น read-only (mount `/tmp` เป็น emptyDir), drop capabilities ทั้งหมด
+  - กำหนด resource requests และ limits
+- [ ] **Service** แบบ ClusterIP ของทั้งสองตัว
+- [ ] **HPA** ของ backend 2–4 pods ที่ CPU 70%
+- [ ] **Ingress** อยู่ namespace เดียวกับ service, `/` ไป frontend, `/api` ไป backend, มี TLS จาก cert-manager
+- [ ] **Smoke test Job** เป็น PostSync hook ของ Argo CD เรียก `/healthz` และ `/api/v1/selftest`
+- [ ] **Overlay `prod`** กำหนด namespace และช่อง `images` (`newName` / `newTag`) ให้ Jenkins มาแก้ tag ที่นี่
+- เช็คทั้ง phase: ลบ pod backend ทิ้ง 1 ตัวระหว่างยิง request ต่อเนื่อง ต้องไม่มี request ที่ error
+
+### Phase 4 · Jenkins CI
+
+- [ ] **Agent pod spec** มี container แยกตามงาน: tools, golang, node, buildkit (rootless), trivy, terraform, aws-cli และ crane
+  - คำใบ้: BuildKit แบบ rootless ใน pod ต้องตั้ง seccomp และ AppArmor เป็น Unconfined
+  - คำใบ้: pin เวอร์ชันของทุก image ห้ามใช้ `latest`
+- [ ] **Pipeline สำหรับ PR**: lint → test → build เป็นไฟล์ `.tar` → Trivy gate → terraform plan (เฉพาะเมื่อแก้ `iac/`)
+- [ ] **Pipeline สำหรับ main**: build → Trivy gate → push **ไฟล์ .tar ตัวที่สแกนแล้ว** ขึ้น ECR → แก้ tag ใน overlay → commit กลับ
+  - คำใบ้: ใช้เงื่อนไข `when` แยกขั้นที่รันเฉพาะ PR กับเฉพาะ main
+  - คำใบ้: ขอ token ของ ECR ด้วย IAM role แล้วเขียน docker config เอง ไม่ต้องเก็บ access key
+- [ ] **กันการวนลูป**: commit ที่ Jenkins สร้างเองต้องไม่ trigger pipeline ซ้ำ
+- [ ] **แจ้งเตือน** Discord ทั้งตอนผ่านและตอนล้มเหลว
+- เช็คทั้ง phase:
+  - เปิด PR ที่ใส่ dependency ที่มีช่องโหว่ CRITICAL → PR ต้องขึ้น ✘ และกด Merge ไม่ได้
+  - merge PR ปกติ → มี image tag ใหม่ใน ECR และมี commit แก้ tag ใน Git
+
+### Phase 5 · Argo CD
+
+- [ ] **Application** ชี้ไปที่ overlay `prod` เปิด auto sync, prune และ self-heal
+- [ ] **Notifications** ส่งเข้า Discord ตอน deployed และตอน sync failed
+- เช็คทั้ง phase:
+  - `kubectl edit` เปลี่ยน replicas ด้วยมือ → Argo ต้องแก้กลับเอง
+  - `git revert` commit ที่แก้ tag → เว็บต้องกลับไปเป็นเวอร์ชันเดิม
+
+> Argo CD **ไม่ rollback ให้เอง** เมื่อ smoke test ไม่ผ่าน มันจะแจ้งว่า sync failed แล้วเราต้อง `git revert` เอง ส่วนระหว่าง rolling update ถ้า pod ใหม่ไม่ ready ตัว Deployment จะไม่ลบ pod เก่า เว็บจึงไม่ล่ม
+
+### Phase 6 · Drift detect และของเสริม
+
+- [ ] **Jenkins job ทุกคืน 02:00 (เวลาไทย)** รัน terraform plan แบบ detailed exit code ถ้าเจอ drift ให้แจ้ง Discord
+  - เช็ค: ไปแก้ security group ใน console ด้วยมือ → คืนนั้นต้องมีแจ้งเตือน
+- [ ] **AWS Budgets** แจ้งเตือนเมื่อเกิน $10/เดือน
+- [ ] **Screenshot และวิดีโอ** สำหรับหัวข้อ 16
+
+### จุดที่มักพลาด
+
+| อาการ | สาเหตุที่พบบ่อย |
+| --- | --- |
+| pod ขึ้น `ImagePullBackOff` หลังผ่านไปครึ่งวัน | token ของ ECR หมดอายุ (12 ชม.) และไม่มี credential provider |
+| pod เรียก AWS แล้วได้ access denied ทั้งที่ role ถูกต้อง | hop limit ของ IMDSv2 ยังเป็น 1 |
+| Ingress ส่ง 404 ไปที่ frontend | service อยู่คนละ namespace กับ Ingress |
+| pipeline วนรันไม่จบ | commit ที่ Jenkins แก้ tag trigger ตัวเองซ้ำ |
+| BuildKit ใน pod error เรื่อง permission | ไม่ได้ตั้ง seccomp/AppArmor เป็น Unconfined หรือ user ไม่ตรงกับเจ้าของ workspace |
+| `go test` fail ใน CI แต่ผ่านบนเครื่อง | container ใน CI ไม่มี libvips สำหรับ cgo |
+| Trivy เจอช่องโหว่แต่ pipeline ยังผ่าน | ตั้ง exit code เป็น 0 |
+| ไฟล์ใน S3 ยังอยู่เกิน 24 ชม. | lifecycle ปัดไปเที่ยงคืน UTC และลบแบบ async (เป็นพฤติกรรมปกติ) |
 
 ---
 
@@ -1358,123 +729,81 @@ ENTRYPOINT ["/usr/local/bin/api"]
 | Method | Path | ใช้ทำอะไร |
 | --- | --- | --- |
 | `GET` | `/healthz` | liveness/readiness probe |
-| `GET` | `/api/v1/selftest` | แปลงรูปตัวอย่างที่ฝังไว้ แล้วเช็คว่าได้ขนาดตรง preset (ใช้ใน smoke test) |
+| `GET` | `/api/v1/selftest` | แปลงรูปตัวอย่างที่ฝังไว้ในแอป แล้วเช็คว่าได้ขนาดตรง preset (ใช้ใน smoke test) |
 | `GET` | `/api/v1/presets` | รายการ preset ทั้งหมด |
 | `POST` | `/api/v1/photos/preset` | แปลงรูปตาม preset |
 | `POST` | `/api/v1/documents/merge-pdf` | รวมหลายภาพเป็น PDF เดียว |
 
-### `POST /api/v1/photos/preset`
+### `POST /api/v1/photos/preset` (multipart/form-data)
 
-`Content-Type: multipart/form-data`
-
-| field | ค่า |
+| field ที่ส่งเข้า | ค่า |
 | --- | --- |
 | `file` | JPG, PNG, HEIC, WEBP (สูงสุด 15 MB) |
 | `preset` | `ocsc` \| `passport` \| `teacher` \| `custom` |
 | `width`, `height`, `max_kb` | ใช้เฉพาะ `custom` |
 
-```json
-{
-  "status": "success",
-  "data": {
-    "filename": "ocsc_photo_a8f3c1.jpg",
-    "width": 200,
-    "height": 230,
-    "size_kb": 84.6,
-    "quality": 82,
-    "mime_type": "image/jpeg",
-    "download_url": "https://<bucket>.s3.ap-southeast-1.amazonaws.com/processed/ocsc_photo_a8f3c1.jpg?X-Amz-Signature=...",
-    "expires_in": 3600
-  }
-}
-```
+| field ที่ตอบกลับ | ความหมาย |
+| --- | --- |
+| `filename` | ชื่อไฟล์ผลลัพธ์ |
+| `width`, `height` | ขนาดภาพจริงหลังแปลง |
+| `size_kb` | ขนาดไฟล์หลังบีบ |
+| `quality` | ค่า JPEG quality ที่หาได้ |
+| `download_url` | presigned URL ของ S3 |
+| `expires_in` | อายุลิงก์เป็นวินาที (3600) |
 
-### `POST /api/v1/documents/merge-pdf`
+### `POST /api/v1/documents/merge-pdf` (multipart/form-data)
 
-| field | ค่า |
+| field ที่ส่งเข้า | ค่า |
 | --- | --- |
 | `files[]` | หลายภาพ หรือ PDF ที่สแกนมา |
 | `target_max_kb` | ค่าเริ่มต้น `500` |
 
-```json
-{
-  "status": "success",
-  "data": {
-    "filename": "id_card_merged.pdf",
-    "total_pages": 2,
-    "size_kb": 412.3,
-    "download_url": "https://<bucket>.s3.ap-southeast-1.amazonaws.com/processed/id_card_merged.pdf?X-Amz-Signature=...",
-    "expires_in": 3600
-  }
-}
-```
+ตอบกลับ `filename`, `total_pages`, `size_kb`, `download_url` และ `expires_in`
 
-**Error ที่อาจเกิด:** `400` ไฟล์ไม่รองรับ · `413` ไฟล์ใหญ่เกิน · `422` บีบให้ต่ำกว่าเกณฑ์ไม่ได้โดยไม่เสียคุณภาพ
+**Error:** `400` ไฟล์ไม่รองรับ · `413` ไฟล์ใหญ่เกิน · `422` บีบให้ต่ำกว่าเกณฑ์ไม่ได้โดยไม่เสียคุณภาพ
 
 ---
 
 ## ⚡ 12. Backend: อัลกอริทึมบีบไฟล์
 
-ใช้ **binary search** หาค่า JPEG quality ที่สูงที่สุดซึ่งทำให้ไฟล์ยังไม่เกินเกณฑ์ ช่วง quality 30–95 ใช้ไม่เกิน 7 รอบ (log₂66 ≈ 6.04)
+**โจทย์:** หาค่า JPEG quality ที่ **สูงที่สุด** (ภาพชัดที่สุด) ซึ่งทำให้ไฟล์ **ยังไม่เกินเกณฑ์** เช่น 100 KB
 
-```go
-package processor
+**แนวคิด:** ยิ่ง quality สูง ไฟล์ยิ่งใหญ่ จึงใช้ **binary search** ในช่วง quality 30–95 ได้ แต่ละรอบลองค่ากลาง ถ้าไฟล์ไม่เกินเกณฑ์ให้จำค่านั้นไว้แล้วลองค่าที่สูงขึ้น ถ้าเกินให้ลองค่าที่ต่ำลง ช่วงนี้มี 66 ค่า จึงใช้ไม่เกิน 7 รอบ (log₂66 ≈ 6.04) แทนการลองไล่ทีละค่า
 
-import (
-	"errors"
-	"fmt"
-
-	"github.com/h2non/bimg"
-)
-
-type ProcessOptions struct {
-	TargetWidth  int
-	TargetHeight int
-	MaxSizeBytes int // เช่น 100 * 1024
-}
-
-var ErrCannotCompress = errors.New("cannot compress image below target size without extreme degradation")
-
-// ProcessPhoto ย่อภาพตามขนาดที่กำหนด แล้วหา quality สูงสุดที่ไฟล์ยัง <= MaxSizeBytes
-func ProcessPhoto(input []byte, opts ProcessOptions) ([]byte, int, error) {
-	resized, err := bimg.NewImage(input).Process(bimg.Options{
-		Width:   opts.TargetWidth,
-		Height:  opts.TargetHeight,
-		Crop:    true,
-		Gravity: bimg.GravitySmart,
-		Type:    bimg.JPEG,
-		Quality: 100,
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("resize: %w", err)
-	}
-
-	low, high := 30, 95
-	var best []byte
-	bestQ := 0
-
-	for low <= high {
-		mid := (low + high) / 2
-		out, err := bimg.NewImage(resized).Process(bimg.Options{Quality: mid, Type: bimg.JPEG, StripMetadata: true})
-		if err != nil {
-			return nil, 0, fmt.Errorf("compress q=%d: %w", mid, err)
-		}
-		if len(out) <= opts.MaxSizeBytes {
-			best, bestQ = out, mid // ผ่านเกณฑ์: ลองเพิ่ม quality
-			low = mid + 1
-		} else {
-			high = mid - 1 // ใหญ่เกิน: ลด quality
-		}
-	}
-
-	if best == nil {
-		return nil, 0, ErrCannotCompress
-	}
-	return best, bestQ, nil
-}
+```mermaid
+flowchart TD
+    A["รับรูป + preset"] --> B["ย่อและ crop เป็นขนาดเป้าหมาย<br/>เช่น 200×230"]
+    B --> C["ตั้ง low = 30, high = 95"]
+    C --> D{"low ≤ high ?"}
+    D -->|ใช่| E["mid = (low + high) / 2<br/>บีบ JPEG ที่ quality = mid"]
+    E --> F{"ขนาด ≤ เกณฑ์ ?"}
+    F -->|ใช่| G["จำผลลัพธ์นี้ไว้<br/>low = mid + 1"]
+    F -->|ไม่| H["high = mid - 1"]
+    G --> D
+    H --> D
+    D -->|ไม่| I{"มีผลลัพธ์ที่จำไว้ ?"}
+    I -->|มี| J["ส่งไฟล์ที่ quality สูงสุดที่ผ่าน"]
+    I -->|ไม่มี| K["ตอบ 422<br/>บีบไม่ได้โดยไม่เสียคุณภาพ"]
 ```
 
-> `StripMetadata: true` ลบ EXIF ออก ทั้งช่วยลดขนาดไฟล์และลบข้อมูลส่วนตัว เช่น พิกัด GPS
+**ตัวอย่าง** (ตัวเลขขนาดไฟล์เป็นค่าสมมติ) เกณฑ์ 100 KB:
+
+| รอบ | low–high | ลอง quality | ขนาดไฟล์ | ผล |
+| --- | --- | --- | --- | --- |
+| 1 | 30–95 | 62 | 71 KB | ผ่าน → ลองสูงขึ้น |
+| 2 | 63–95 | 79 | 92 KB | ผ่าน → ลองสูงขึ้น |
+| 3 | 80–95 | 87 | 118 KB | เกิน → ลองต่ำลง |
+| 4 | 80–86 | 83 | 104 KB | เกิน → ลองต่ำลง |
+| 5 | 80–82 | 81 | 97 KB | ผ่าน → ลองสูงขึ้น |
+| 6 | 82–82 | 82 | 101 KB | เกิน → จบ |
+
+ได้คำตอบ **quality 81** (97 KB) ใช้ 6 รอบ
+
+**สิ่งที่ควรทำเพิ่ม**
+
+- ลบ metadata (EXIF) ออกก่อนบีบ ช่วยลดขนาดไฟล์และลบข้อมูลส่วนตัว เช่น พิกัด GPS
+- ใช้การ crop แบบ smart เพื่อให้ใบหน้าอยู่กลางภาพ
+- ส่งค่า quality ที่ได้กลับไปใน response ด้วย จะช่วยตอน debug
 
 ---
 
@@ -1554,9 +883,9 @@ func ProcessPhoto(input []byte, opts ProcessOptions) ([]byte, int, error) {
 
 ### Roadmap
 
-- [x] Terraform + remote state
-- [x] Jenkins PR/main pipeline + Trivy gate
-- [x] Argo CD GitOps + smoke test
+- [ ] Terraform + remote state
+- [ ] Jenkins PR/main pipeline + Trivy gate
+- [ ] Argo CD GitOps + smoke test
 - [ ] Namespace `staging` + promote ไป `production` ด้วย PR
 - [ ] Observability: Prometheus + Grafana (แบบเบา) และ dashboard latency/error rate
 - [ ] Argo Rollouts (canary) + rollback อัตโนมัติ
@@ -1592,683 +921,3 @@ func ProcessPhoto(input []byte, opts ProcessOptions) ([]byte, int, error) {
 ## 📄 License
 
 MIT
-
-%% ================= 1. CLIENT & UI FLOW =================
-    subgraph CLIENT_TIER ["💻 Client & Frontend Tier"]
-        User(["👤 Job Applicant / End User"]):::client
-        
-        subgraph NEXTJS_APP ["Next.js 14 Web Application (UI)"]
-            UI_Home["🏠 Main Web Page: Drag & Drop File Upload"]
-            UI_Presets["🎯 Presets Selector:<br/>• OCSC (200x230px, <100KB, JPG)<br/>• Passport (2x2 inch, White background)<br/>• PDF Copy Merger (<500KB)"]
-            UI_Crop["✂️ Interactive Crop & Rotate Tool"]
-            UI_Preview["👁️ Real-time Result Preview & Download Button"]
-        end
-    end
-
-%% ================= 2. DEVELOPER & CI/CD PIPELINE =================
-    subgraph DEVOPS_TIER ["⚙️ CI/CD Automation Tier (Jenkins in K3s)"]
-        Dev["👨‍💻 DevOps / Backend Developer"]:::cicd
-        GitHub["🐙 GitHub Repository<br/>(Monorepo: /frontend, /backend, /k8s)"]:::cicd
-
-        subgraph JENKINS_PIPELINE ["Jenkins Controller Pod (Namespace: jenkins)"]
-            Trigger["⚡ Webhook Trigger Receiver"]
-            
-            subgraph DYNAMIC_AGENT ["Dynamic K8s Agent Pod (Spawn on Demand)"]
-                Stage_Lint["1. Lint & Unit Tests<br/>(golangci-lint / go test)"]
-                Stage_Security["2. Code & CVE Scan<br/>(govulncheck / Trivy)"]
-                Stage_Kaniko["3. Kaniko Container Builder<br/>(Build Docker Image without root)"]
-                Stage_Deploy["4. Deployment Rollout<br/>(kubectl rollout restart)"]
-            end
-        end
-    end
-
-%% ================= 3. AWS CLOUD & RUNTIME INFRASTRUCTURE =================
-    subgraph AWS_CLOUD ["☁️ AWS Cloud Platform (ap-southeast-1 Singapore)"]
-        
-        subgraph IAC_BOX ["🏗️ Infrastructure as Code"]
-            Terraform["🟣 Terraform Engine<br/>• main.tf (S3, ECR)<br/>• ec2_k3s.tf (t3a.large)<br/>• security_group.tf"]:::security
-        end
-
-        ECR[("📦 Amazon ECR<br/>• Repo: thai-gov-processor<br/>• Tag: Git-SHA / Build-No")]:::storage
-
-        subgraph EC2_INSTANCE ["🖥️ AWS EC2 Instance (t3a.large: 2 vCPU, 8GB RAM)"]
-            SG["🛡️ Security Group Rules<br/>Inbound: 80, 443, 22 (SSH Restrict)"]:::security
-            IAM["🔑 IAM Instance Profile<br/>• Read ECR Image<br/>• Put/Get S3 Bucket (No hardcoded keys)"]:::security
-
-            subgraph K3S_CLUSTER ["☸️ K3s Single-Node Kubernetes Cluster"]
-                Traefik["🌐 Traefik Ingress Controller (:80 / :443)<br/>SSL Termination via Let's Encrypt"]
-                
-                subgraph NS_FRONTEND ["Namespace: frontend"]
-                    UIPod["📱 Next.js Pods (Replicas: 2)<br/>Node.js Runtime / SSR"]
-                end
-
-                subgraph NS_PROD ["Namespace: production"]
-                    K8s_Service["🔀 ClusterIP Service (:8080)"]
-                    
-                    subgraph PODS_HPA ["Horizontal Pod Autoscaler (HPA: CPU > 70%)"]
-                        Pod1["⚡ Go Worker Pod 1<br/>• bimg (Image Resize)<br/>• pdfcpu (PDF Engine)"]
-                        Pod2["⚡ Go Worker Pod 2<br/>(Replica standby)"]
-                    end
-                end
-            end
-        end
-
-        subgraph STORAGE_TIER ["🪣 Storage & Data Privacy Plane"]
-            S3[("Amazon S3 Bucket<br/>• /uploads (Raw inputs)<br/>• /processed (Gov-ready outputs)")]:::aws
-            S3_Lifecycle["⏳ S3 Lifecycle Policy<br/>Permanently delete all files after 24 Hours<br/>(Compliant with Thai PDPA)"]:::security
-            S3 --- S3_Lifecycle
-        end
-    end
-
-%% ================= PIPELINE CONNECTIONS =================
-    Dev -->|1. git push| GitHub
-    GitHub -->|2. Webhook Event| Trigger
-    Trigger -->|3. Spawn Pod| DYNAMIC_AGENT
-    Stage_Lint --> Stage_Security
-    Stage_Security --> Stage_Kaniko
-    Stage_Kaniko -->|4. Push Image via IAM| ECR
-    Stage_Kaniko --> Stage_Deploy
-    Stage_Deploy -->|5. kubectl rollout| NS_PROD
-    ECR -.->|Pull Image| Pod1
-
-%% ================= USER APPLICATION CONNECTIONS =================
-    User -->|Access Web Site| UI_Home
-    UI_Home --> UI_Presets
-    UI_Presets --> UI_Crop
-    UI_Crop -->|Upload Photo / PDF Request| Traefik
-    
-    Traefik -->|Route: domain.com| UIPod
-    Traefik -->|Route: /api/v1/convert| K8s_Service
-    Traefik -->|Route: ci.domain.com| Trigger
-    
-    K8s_Service --> Pod1
-    K8s_Service --> Pod2
-    
-    Pod1 -->|Stream Temporary File| S3
-    S3 -.->|Return Presigned Download URL| UI_Preview
-    UI_Preview -->|Download Processed File| User
-
-%% ================= IAC PROVISIONING =================
-    Terraform -.->|Provision VPC / EC2 / S3 / ECR| EC2_INSTANCE
-    Terraform -.->|Manage Bucket| S3
-    Terraform -.->|Manage Registry| ECR
-```
-
-## 🛠️ 3. Tech Stack & Architectural Decisions
-
-| ส่วนประกอบ | เทคโนโลยีที่เลือก | เหตุผลทางเทคนิค (Why this?) |
-| --- | --- | --- |
-| **Backend API** | **Go 1.22+** | รันเร็วระดับ Microseconds, Binary เล็ก, จัดการ Goroutines สูง, Memory Footprint ต่ำกว่า Node/Java 5-10 เท่า |
-| **Image Processing** | `h2non/bimg` (libvips) | ประมวลผลภาพเร็วกว่า ImageMagick 4–8 เท่า และกิน Memory น้อยกว่ามาก |
-| **PDF Processing** | `pdfcpu` | Pure Go PDF Processor จัดการ Split/Merge และ Optimize ขนาดไฟล์ได้อย่างรวดเร็ว |
-| **Frontend UI** | **Next.js 14 (App Router)** | รองรับ Client-Side Image Crop/Canvas Preview และทำ Server-Side Rendering (SSR) ปลอดภัยต่อการทำ API Proxy |
-| **Styling** | **Tailwind CSS + Lucide Icons** | ออกแบบ UI สะอาดตา สไตล์ราชการยุคใหม่ (GovTech) พร้อม Responsive Design 100% |
-| **Container Engine** | **K3s (Kubernetes)** | น้ำหนักเบามาก (ใช้ RAM < 512MB สำหรับ K3s Base) มี Ingress (Traefik) ในตัว ไม่ต้องจ่ายค่า EKS Master Node ($73/เดือน) |
-| **CI/CD Platform** | **Jenkins on K3s** | ติดตั้งผ่าน Official Helm Chart ใช้ Dynamic Kubernetes Pod Agent รันงานเฉพาะตอน Build ไม่เปลือง RAM เครื่อง |
-| **Container Builder** | **Google Kaniko** | Build Docker image ภายใน Kubernetes Pod ได้โดยตรงโดยไม่ต้องใช้ Docker-in-Docker (DinD) หรือเปิดสิทธิ์ root socket (`/var/run/docker.sock`) |
-| **Security Scanning** | **Trivy + govulncheck** | สแกนช่องโหว่ระดับ Dependencies และระดับ OS Packages ใน Container Image ก่อน Push |
-| **Cloud Storage** | **Amazon S3** | เก็บไฟล์ชั่วคราว พร้อมตั้ง **S3 Lifecycle Rules ลบไฟล์ทิ้งอัตโนมัติภายใน 24 ชม.** เพื่อความปลอดภัยตามกฎหมาย PDPA |
-| **Artifact Registry** | **Amazon ECR** | เก็บ Private Docker Images ภายใน Region เดียวกัน (ap-southeast-1) ดึง Image ฟรี ไม่เสียค่า Data Transfer |
-| **Infrastructure as Code** | **Terraform** | จัดการ Lifecycle ของ Cloud ทั้งหมดแบบ Declarative สามารถสั่ง `apply` และ `destroy` เพื่อคุมงบได้ทันที |
-
----
-
-## 📂 4. Project Directory Structure (Monorepo)
-
-```text
-thai-gov-processor/
-├── .github/
-│   └── workflows/              # GitHub Actions (ทางเลือกสำรอง หรือ Trigger Webhook)
-├── backend/                    # Go API Microservice
-│   ├── cmd/
-│   │   └── api/
-│   │       └── main.go         # Entry point, Router & Dependency Injection
-│   ├── internal/
-│   │   ├── handler/            # HTTP Handlers (Multipart, Presets, Health)
-│   │   ├── processor/          # Core Logic: bimg resize, binary search compress, pdfcpu
-│   │   ├── storage/            # S3 Client wrapper & Presigned URL generator
-│   │   └── preset/             # Thai Gov Presets (ก.พ., Passport, etc.)
-│   ├── Dockerfile              # Multi-stage Docker build with libvips-dev
-│   ├── go.mod
-│   └── go.sum
-├── frontend/                   # Next.js 14 Application
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── layout.tsx
-│   │   │   ├── page.tsx        # Single-page Web App UI
-│   │   │   └── api/convert/    # Next.js Proxy Route
-│   │   ├── components/
-│   │   │   ├── DropZone.tsx    # Drag & drop upload area
-│   │   │   ├── PresetCard.tsx  # Preset selector component
-│   │   │   ├── ImageCropper.tsx# Interactive canvas cropper (react-image-crop)
-│   │   │   └── PreviewModal.tsx# Result visualizer & Download trigger
-│   │   └── lib/
-│   │       └── utils.ts
-│   ├── Dockerfile              # Next.js Standalone build
-│   ├── package.json
-│   └── tailwind.config.ts
-├── iac/                        # Terraform Infrastructure
-│   ├── main.tf                 # Provider, S3 Bucket, Lifecycle Configuration
-│   ├── ecr.tf                  # ECR Repositories (Backend & Frontend)
-│   ├── security_group.tf       # EC2 Security Group (22, 80, 443, 6443)
-│   ├── iam.tf                  # IAM Role & Instance Profile for EC2
-│   ├── ec2_k3s.tf              # EC2 t3a.large Instance with UserData K3s Setup
-│   ├── variables.tf
-│   └── outputs.tf
-├── k8s/                        # Kubernetes Manifests
-│   ├── base/
-│   │   ├── backend-deployment.yaml
-│   │   ├── backend-service.yaml
-│   │   ├── backend-hpa.yaml
-│   │   ├── frontend-deployment.yaml
-│   │   ├── frontend-service.yaml
-│   │   └── ingress.yaml        # Traefik Ingress Routes
-│   └── jenkins/
-│       └── values.yaml         # Helm Values for Jenkins Controller on K3s
-├── Jenkinsfile                 # Declarative Pipeline with Dynamic Kubernetes Pod Agent
-└── README.md
-
-```
-
----
-
-## ⚡ 5. Backend Implementation (Go Core Processor)
-
-Backend ใช้เทคนิค **Binary Search (ค้นหาทวิภาค)** เพื่อหาค่า Quality ของภาพ JPEG ที่ทำให้ไฟล์มีขนาดต่ำกว่าเกณฑ์สูงสุด (เช่น 100 KB) โดยยังคงความคมชัดสูงสุด และใช้เวลาประมวลผลน้อยที่สุด (ลูปไม่เกิน 7 ครั้ง):
-
-```go
-package processor
-
-import (
-	"errors"
-	"fmt"
-	"[github.com/h2non/bimg](https://github.com/h2non/bimg)"
-)
-
-type ProcessOptions struct {
-	TargetWidth    int
-	TargetHeight   int
-	MaxSizeBytes   int    // เช่น 100 * 1024 (100KB)
-	Format         string // "jpeg"
-	EnforceWhiteBg bool
-}
-
-// ProcessPhoto Resize และบีบอัดรูปภาพด้วย Binary Search
-func ProcessPhoto(inputBuffer []byte, opts ProcessOptions) ([]byte, error) {
-	img := bimg.NewImage(inputBuffer)
-
-	// 1. ตรวจสอบและแปลงสัดส่วนภาพแบบ Force Resize หรือ Smart Crop
-	resized, err := img.Process(bimg.Options{
-		Width:   opts.TargetWidth,
-		Height:  opts.TargetHeight,
-		Crop:    true,
-		Gravity: bimg.GravityCentre,
-		Type:    bimg.JPEG,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to resize: %w", err)
-	}
-
-	// 2. Binary Search หาค่า Quality ที่ดีที่สุดที่ขนาดไฟล์ <= opts.MaxSizeBytes
-	lowQuality := 30
-	highQuality := 95
-	bestQuality := lowQuality
-	var finalBuffer []byte
-
-	for lowQuality <= highQuality {
-		midQuality := (lowQuality + highQuality) / 2
-		compressed, err := bimg.NewImage(resized).Process(bimg.Options{
-			Quality: midQuality,
-			Type:    bimg.JPEG,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if len(compressed) <= opts.MaxSizeBytes {
-			// เก็บผลลัพธ์ที่ดีที่สุดไว้ แล้วลองขยับ Quality ให้ชัดขึ้นอีก
-			bestQuality = midQuality
-			finalBuffer = compressed
-			lowQuality = midQuality + 1
-		} else {
-			// ขนาดไฟล์เกินเป้าหมาย ลด Quality ลง
-			highQuality = midQuality - 1
-		}
-	}
-
-	if finalBuffer == nil {
-		return nil, errors.New("cannot compress image below target size without extreme degradation")
-	}
-
-	return finalBuffer, nil
-}
-
-```
-
----
-
-## 📡 6. REST API Specification
-
-### 1. `POST /api/v1/photos/preset`
-
-แปลงรูปภาพตามพรีเซ็ตที่กำหนด
-
-* **Headers:** `Content-Type: multipart/form-data`
-* **Form-Data Parameters:**
-* `file`: Binary Data (JPG, PNG, HEIC, WEBP)
-* `preset`: `ocsc` | `passport` | `teacher` | `custom`
-* `width`: (Optional สำหรับ `custom`)
-* `height`: (Optional สำหรับ `custom`)
-* `max_kb`: (Optional สำหรับ `custom`)
-
-
-* **Response (JSON):**
-```json
-{
-  "status": "success",
-  "data": {
-    "filename": "ocsc_photo_a8f3c1.jpg",
-    "width": 200,
-    "height": 230,
-    "size_kb": 84.6,
-    "mime_type": "image/jpeg",
-    "download_url": "[https://thai-gov-photos.s3.ap-southeast-1.amazonaws.com/processed/ocsc_photo_a8f3c1.jpg?AWSAccessKeyId=](https://thai-gov-photos.s3.ap-southeast-1.amazonaws.com/processed/ocsc_photo_a8f3c1.jpg?AWSAccessKeyId=)...",
-    "expires_in": 3600
-  }
-}
-
-```
-
-
-
-### 2. `POST /api/v1/documents/merge-pdf`
-
-รวมไฟล์ภาพหลายรูปเป็น PDF เดียว พร้อมคุมขนาดไม่เกิน 500 KB
-
-* **Headers:** `Content-Type: multipart/form-data`
-* **Form-Data Parameters:**
-* `files[]`: Multiple Images / Scanned PDF
-* `target_max_kb`: `500`
-
-
-* **Response (JSON):**
-```json
-{
-  "status": "success",
-  "data": {
-    "filename": "id_card_merged.pdf",
-    "total_pages": 2,
-    "size_kb": 412.3,
-    "download_url": "[https://thai-gov-photos.s3.ap-southeast-1.amazonaws.com/processed/id_card_merged.pdf](https://thai-gov-photos.s3.ap-southeast-1.amazonaws.com/processed/id_card_merged.pdf)?...",
-    "expires_in": 3600
-  }
-}
-
-```
-
-
-
----
-
-## 🖥️ 7. Frontend UI / UX Features (Next.js 14)
-
-1. **Preset-driven User Flow:**
-* ผู้ใช้กดเลือกหน่วยงานที่ต้องการยื่นเอกสาร (ระบบจะตั้งค่ากว้าง x ยาว, น้ำหนักไฟล์ และเงื่อนไขสีฉากหลังให้อัตโนมัติ)
-
-
-2. **Client-Side Image Manipulation (Interactive Cropper):**
-* ใช้ `react-image-crop` เพื่อให้ผู้ใช้หมุน (Rotate 90°), พลิกภาพ (Flip), และลากกรอบครอบตัดภาพเฉพาะศีรษะถึงหน้าอก โดยระบบจะบังคับ Aspect Ratio (เช่น 4:5 สำหรับ ก.พ.) เพื่อป้องกันภาพผิดสัดส่วน
-
-
-3. **Instant Validation Engine:**
-* ตรวจสอบสกุลไฟล์และขนาดภาพตั้งแต่หน้าบ้าน (Client-side validation) แจ้งเตือนทันทีหากไฟล์เสียหาย
-
-
-4. **Before / After Comparison Slider:**
-* แสดงขนาดไฟล์เดิมเทียบกับขนาดไฟล์ใหม่ (เช่น `3.4 MB` $\rightarrow$ `89 KB`) พร้อมปุ่มดาวน์โหลดไฟล์ความละเอียดสูงสุด
-
-
-
----
-
-## 🏗️ 8. Infrastructure as Code (Terraform)
-
-#### `iac/main.tf`
-
-```hcl
-terraform {
-  required_version = ">= 1.5.0"
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
-# S3 Bucket สำหรับเก็บรูปภาพและเอกสารชั่วคราว
-resource "aws_s3_bucket" "photo_storage" {
-  bucket_prefix = "thai-gov-photos-"
-  force_destroy = true
-}
-
-# S3 Lifecycle Rule: ลบไฟล์ทิ้งถาวรอัตโนมัติหลัง 24 ชั่วโมง
-resource "aws_s3_bucket_lifecycle_configuration" "photo_lifecycle" {
-  bucket = aws_s3_bucket.photo_storage.id
-
-  rule {
-    id     = "auto-delete-24h-temp-files"
-    status = "Enabled"
-    expiration {
-      days = 1
-    }
-  }
-}
-
-# AWS ECR Repositories
-resource "aws_ecr_repository" "backend_repo" {
-  name                 = "thai-gov-processor-backend"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-resource "aws_ecr_repository" "frontend_repo" {
-  name                 = "thai-gov-processor-frontend"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-```
-
-#### `iac/security_group.tf`
-
-```hcl
-resource "aws_security_group" "k3s_sg" {
-  name        = "k3s-cluster-sg"
-  description = "Security group for single-node K3s cluster"
-
-  ingress {
-    description = "SSH access"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "K3s API"
-    from_port   = 6443
-    to_port     = 6443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "HTTP Inbound"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "HTTPS Inbound"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-```
-
-#### `iac/ec2_k3s.tf`
-
-```hcl
-resource "aws_iam_role" "k3s_instance_role" {
-  name = "k3s-instance-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Action    = "sts:AssumeRole"
-      Effect    = "Allow"
-      Principal = { Service = "ec2.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecr_read" {
-  role       = aws_iam_role.k3s_instance_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
-}
-
-resource "aws_iam_role_policy" "s3_access" {
-  name = "k3s-s3-access"
-  role = aws_iam_role.k3s_instance_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "s3:PutObject",
-        "s3:GetObject",
-        "s3:DeleteObject"
-      ]
-      Resource = "${aws_s3_bucket.photo_storage.arn}/*"
-    }]
-  })
-}
-
-resource "aws_iam_instance_profile" "k3s_profile" {
-  name = "k3s-instance-profile"
-  role = aws_iam_role.k3s_instance_role.name
-}
-
-resource "aws_instance" "k3s_node" {
-  ami                  = "ami-0b940e4f1a2380590" # Ubuntu 24.04 LTS (ap-southeast-1)
-  instance_type        = "t3a.large"             # 2 vCPU, 8GB RAM
-  key_name             = var.key_pair_name
-  vpc_security_group_ids = [aws_security_group.k3s_sg.id]
-  iam_instance_profile = aws_iam_instance_profile.k3s_profile.name
-
-  root_block_device {
-    volume_size = 35 # GB
-    volume_type = "gp3"
-  }
-
-  user_data = <<-EOF
-              #!/bin/bash
-              apt-get update -y
-              apt-get install -y curl snapd
-
-              PUBLIC_IP=$(curl -s [http://169.254.169.254/latest/meta-data/public-ipv4](http://169.254.169.254/latest/meta-data/public-ipv4))
-              
-              # ติดตั้ง K3s 
-              curl -sfL [https://get.k3s.io](https://get.k3s.io) | INSTALL_K3S_EXEC="--tls-san $PUBLIC_IP --write-kubeconfig-mode 644" sh -
-              
-              # ติดตั้ง Helm
-              snap install helm --classic
-              snap install aws-cli --classic
-              EOF
-
-  tags = {
-    Name = "k3s-thai-gov-processor"
-  }
-}
-
-```
-
----
-
-## ☸️ 9. Kubernetes & Ingress Manifests
-
-#### `k8s/base/ingress.yaml`
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: app-ingress
-  namespace: production
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web
-spec:
-  rules:
-  - host: photo-gov.your-ip.nip.io
-    http:
-      paths:
-      - path: /api
-        pathType: Prefix
-        backend:
-          service:
-            name: backend-service
-            port:
-              number: 8080
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: frontend-service
-            port:
-              number: 3000
-
-```
-
----
-
-## 🔄 10. CI/CD Pipeline Configuration (`Jenkinsfile`)
-
-ใช้ **Kubernetes Plugin** บน Jenkins เพื่อ Spawn Dynamic Pod Agent (Golang, Kaniko, Trivy) ขึ้นมารันงานเฉพาะตอน Build แล้วลบทิ้งเมื่อเสร็จสิ้น:
-
-```groovy
-pipeline {
-  agent {
-    kubernetes {
-      yaml '''
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    role: jenkins-agent
-spec:
-  serviceAccountName: jenkins-admin
-  containers:
-  - name: golang
-    image: golang:1.22-alpine
-    command: ['cat']
-    tty: true
-  - name: kaniko
-    image: gcr.io/kaniko-project/executor:debug
-    command: ['cat']
-    tty: true
-  - name: trivy
-    image: aquasec/trivy:latest
-    command: ['cat']
-    tty: true
-'''
-    }
-  }
-
-  environment {
-    AWS_REGION    = 'ap-southeast-1'
-    ECR_REGISTRY  = 'xxxxxxxxxxxx.dkr.ecr.ap-southeast-1.amazonaws.com'
-    IMAGE_BACKEND = "${ECR_REGISTRY}/thai-gov-processor-backend"
-    TAG           = "${BUILD_NUMBER}-${GIT_COMMIT.take(7)}"
-  }
-
-  stages {
-    stage('Unit Test & Benchmark') {
-      steps {
-        container('golang') {
-          dir('backend') {
-            sh 'go test -v -race -cover ./...'
-          }
-        }
-      }
-    }
-
-    stage('Security Scan (SAST)') {
-      steps {
-        container('trivy') {
-          sh 'trivy fs --severity HIGH,CRITICAL --exit-code 0 backend/'
-        }
-      }
-    }
-
-    stage('Build & Push to ECR via Kaniko') {
-      steps {
-        container('kaniko') {
-          sh """
-          /kaniko/executor \
-            --context=dir://./backend \
-            --dockerfile=backend/Dockerfile \
-            --destination=${IMAGE_BACKEND}:${TAG} \
-            --destination=${IMAGE_BACKEND}:latest
-          """
-        }
-      }
-    }
-
-    stage('Scan Container Image (CVEs)') {
-      steps {
-        container('trivy') {
-          sh "trivy image --severity CRITICAL --exit-code 0 ${IMAGE_BACKEND}:${TAG}"
-        }
-      }
-    }
-
-    stage('Deploy to K3s Production') {
-      steps {
-        sh "kubectl set image deployment/backend-deployment processor=${IMAGE_BACKEND}:${TAG} -n production"
-        sh "kubectl rollout status deployment/backend-deployment -n production --timeout=120s"
-      }
-    }
-  }
-
-  post {
-    always {
-      cleanWs()
-    }
-    failure {
-      echo "Deployment failed! Review build logs immediately."
-    }
-  }
-}
-
-```
-
----
-
-## 💰 11. Cost Optimization & Budgeting
-
-| Service / Resource | รายละเอียดการคำนวณ | ค่าใช้จ่าย (เปิดทิ้งไว้ 1 วัน) | ค่าใช้จ่าย (เปิดทิ้งไว้ 1 เดือน) |
-| --- | --- | --- | --- |
-| **AWS EC2 (t3a.large)** | 2 vCPU, 8GB RAM ($0.0752/ชม.) | ~60 บาท / วัน | ~1,850 บาท / เดือน |
-| **Amazon S3** | Storage < 1GB + S3 Lifecycle 24 ชม. | ~0.00 บาท | ~0.50 บาท / เดือน |
-| **Amazon ECR** | เก็บ Docker Image < 200MB | ~0.00 บาท | ~0.60 บาท / เดือน |
-| **EKS Control Plane** | **ไม่ได้ใช้** (หันมาใช้ K3s บน EC2 แทน) | **ประหยัดได้ 100%** | **ประหยัดไป $73 (~2,600 บาท)** |
-| **รวมโดยประมาณ** |  | **~60 บาท / วัน** | **~1,850 บาท / เดือน** |
-
-> 💡 **Best Practice ในการประหยัดงบ:**
-> ในการนำเสนอผลงาน ให้รัน `terraform apply` ก่อนการสัมภาษณ์หรืออัดวิดีโอสาธิต จากนั้นเมื่อเสร็จสิ้นให้สั่ง `terraform destroy` ทันที จะเสียค่าใช้จ่ายจริงเพียง **ไม่กี่บาทต่อการทดสอบ**
-
----
