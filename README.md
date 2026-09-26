@@ -1,7 +1,7 @@
 # 🇹🇭 Thai Gov Photo & Doc Processor
 
 > เว็บแปลงรูปถ่ายและเอกสารให้ตรงสเปกระบบรับสมัครของหน่วยงานราชการไทยโดยอัตโนมัติ
-> พร้อม **CI/CD pipeline แบบ GitOps** บน **K3s + AWS** ที่สร้างทั้งหมดด้วย **Terraform**
+> พร้อม **production-like DevOps workflow** ตั้งแต่ **Terraform → AWS → K3s → Jenkins CI → Trivy → ECR → Argo CD GitOps → Production**
 
 ![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs)
@@ -18,8 +18,448 @@
 
 ---
 
+## 🧭 0. โปรเจกต์นี้คืออะไร? (อ่านตรงนี้ก่อน)
+
+โปรเจกต์ **Thai Gov Photo & Doc Processor** เป็นเว็บที่ช่วยให้ผู้ใช้เตรียม **รูปถ่ายและเอกสาร** ให้ตรงกับข้อกำหนดของระบบรับสมัครหน่วยงานราชการไทย เช่น ขนาดภาพ, ประเภทไฟล์ และขนาดไฟล์สูงสุด โดยผู้ใช้ไม่ต้องคอยย่อรูปหรือทดลองบีบไฟล์เองหลายครั้ง
+
+ตัวอย่างเช่น ผู้ใช้มีรูปจากโทรศัพท์ขนาด `3.4 MB` แต่ระบบสมัคร ก.พ. ต้องการรูป `.jpg` ขนาด `200 × 230 px` และไฟล์ต้องไม่เกิน `100 KB`
+
+ระบบนี้จะช่วยทำกระบวนการประมาณนี้ให้โดยอัตโนมัติ:
+
+```text
+รูปจากโทรศัพท์
+3.4 MB / 3024 × 4032 px
+        │
+        ▼
+อัปโหลดเข้าเว็บไซต์
+        │
+        ▼
+เลือก Preset เช่น "ก.พ."
+        │
+        ▼
+Crop / Rotate ให้ได้สัดส่วนที่ถูกต้อง
+        │
+        ▼
+Backend ปรับขนาดเป็น 200 × 230 px
+        │
+        ▼
+ระบบหาค่า JPEG Quality
+ที่สูงที่สุดแต่ยังไม่เกิน 100 KB
+        │
+        ▼
+ไฟล์ผลลัพธ์ เช่น 89 KB
+        │
+        ▼
+ดาวน์โหลดไปใช้สมัครได้
+```
+
+นอกจากรูปถ่ายแล้ว ระบบยังรองรับการรวมหลายภาพหรือเอกสารเป็น PDF และพยายามควบคุมขนาดไฟล์ให้ไม่เกินเกณฑ์ที่กำหนด
+
+### 🎯 จุดสำคัญของโปรเจกต์
+
+โปรเจกต์นี้ไม่ได้ทำขึ้นเพื่อแสดงว่า “ทำเว็บย่อรูปได้” เพียงอย่างเดียว แต่ใช้ Application นี้เป็น **workload จริง** สำหรับฝึกและสาธิตงาน DevOps แบบครบวงจร
+
+มองระบบนี้เป็น 2 ชั้นได้ง่ายที่สุด:
+
+```text
+┌──────────────────────────────────────────┐
+│            APPLICATION LAYER             │
+│                                          │
+│  เว็บแปลงรูป / เอกสารราชการ              │
+│  Next.js + Go + S3                       │
+└──────────────────────────────────────────┘
+                    │
+                    │ ทำงานอยู่บน
+                    ▼
+┌──────────────────────────────────────────┐
+│              DEVOPS LAYER                │
+│                                          │
+│  Terraform → AWS → K3s                   │
+│  Jenkins → Trivy → ECR                   │
+│  GitHub → Argo CD → Production           │
+└──────────────────────────────────────────┘
+```
+
+ดังนั้นเป้าหมายของโปรเจกต์คือการได้เรียนรู้ทั้งสองด้านพร้อมกัน:
+
+- **Application:** รับไฟล์ → ประมวลผล → เก็บชั่วคราว → ส่งไฟล์กลับให้ผู้ใช้
+- **Infrastructure:** สร้าง Cloud Infrastructure ด้วย Terraform
+- **Container:** แพ็ก Frontend และ Backend เป็น container image
+- **Kubernetes:** รัน Application บน K3s
+- **CI:** ตรวจโค้ด, Test, Build และ Security Scan ด้วย Jenkins
+- **Registry:** เก็บ container image บน Amazon ECR
+- **CD / GitOps:** ใช้ Argo CD อ่าน desired state จาก Git แล้ว deploy เข้า K3s
+- **Security:** ใช้ Trivy, IAM, SSM, TLS และ container hardening
+- **Data Privacy:** เก็บไฟล์ผู้ใช้ชั่วคราวบน S3 และลบอัตโนมัติ
+- **Cost Control:** สามารถ `terraform apply` ก่อนเดโมและ `terraform destroy` หลังใช้งาน
+
+---
+
+### 👤 0.1 ผู้ใช้ใช้งานระบบอย่างไร
+
+เส้นทางของผู้ใช้จริงมีเพียงไม่กี่ขั้น:
+
+```text
+ผู้ใช้
+  │
+  ▼
+เปิดเว็บไซต์
+  │
+  ▼
+อัปโหลดรูป / เอกสาร
+  │
+  ▼
+เลือก Preset
+เช่น ก.พ. / Passport / ครู / Custom
+  │
+  ▼
+Crop / Rotate
+  │
+  ▼
+Backend ประมวลผล
+  │
+  ├── Resize
+  ├── Compress
+  ├── Remove EXIF
+  └── ตรวจขนาดไฟล์
+  │
+  ▼
+เก็บผลลัพธ์ชั่วคราวใน S3
+  │
+  ▼
+สร้าง Presigned URL
+  │
+  ▼
+ผู้ใช้ดาวน์โหลดไฟล์
+```
+
+Frontend ใช้ **Next.js** ส่วน Backend ใช้ **Go** และใช้ **Amazon S3** สำหรับเก็บไฟล์ชั่วคราว
+
+---
+
+### ⚙️ 0.2 แล้ว DevOps เข้ามาตรงไหน
+
+สมมติ Developer แก้โค้ดเพื่อเพิ่ม Preset ใหม่
+
+แทนที่จะเข้า Server แล้ว copy file หรือ restart application ด้วยมือ ทุกอย่างจะผ่าน Pipeline:
+
+```text
+Developer
+    │
+    ▼
+Git Push / Pull Request
+    │
+    ▼
+GitHub
+    │
+    ▼
+Jenkins
+    │
+    ├── Lint
+    ├── Unit Test
+    ├── Build Container Image
+    └── Trivy Security Scan
+    │
+    ▼
+Amazon ECR
+เก็บ Container Image
+    │
+    ▼
+Jenkins แก้ Image Tag ใน Git
+    │
+    ▼
+Argo CD เห็น Git เปลี่ยน
+    │
+    ▼
+Argo CD Sync
+    │
+    ▼
+K3s Production
+    │
+    ▼
+Rolling Update
+    │
+    ▼
+Smoke Test
+```
+
+แนวคิดสำคัญคือ:
+
+> **Jenkins ทำ CI — ตรวจ, ทดสอบ, build และสร้าง artifact**
+
+> **Argo CD ทำ CD — อ่าน Git แล้ว deploy desired state ไปยัง Kubernetes**
+
+Jenkins จึงไม่ต้องมีสิทธิ์ deploy application เข้า production โดยตรง
+
+---
+
+### 🔄 0.3 GitOps คืออะไรในโปรเจกต์นี้
+
+ในระบบนี้ **Git คือ Source of Truth ของ Production**
+
+ตัวอย่าง:
+
+```text
+Git ระบุว่า
+backend image = a1b2c3d
+
+        │
+        ▼
+
+Argo CD ตรวจพบว่า
+Git กับ Cluster ไม่ตรงกัน
+
+        │
+        ▼
+
+Argo CD Sync
+
+        │
+        ▼
+
+K3s Pull image a1b2c3d จาก ECR
+
+        │
+        ▼
+
+Production กลายเป็น Version a1b2c3d
+```
+
+ถ้าต้องการ rollback ก็ใช้:
+
+```text
+git revert
+    │
+    ▼
+Git กลับไปเป็น tag เดิม
+    │
+    ▼
+Argo CD Sync
+    │
+    ▼
+Production กลับ Version ก่อนหน้า
+```
+
+ดังนั้นการ deploy และ rollback สามารถตรวจสอบย้อนหลังจาก Git history ได้
+
+---
+
+### 🧱 0.4 แต่ละเครื่องมือมีหน้าที่อะไร
+
+| เครื่องมือ | หน้าที่ในโปรเจกต์ |
+| --- | --- |
+| **Next.js** | Frontend สำหรับ Upload, เลือก Preset, Crop และ Preview |
+| **Go** | Backend API สำหรับ resize, compress และสร้างไฟล์ผลลัพธ์ |
+| **S3** | เก็บไฟล์ผู้ใช้และไฟล์ผลลัพธ์แบบชั่วคราว |
+| **Terraform** | สร้าง AWS Infrastructure จาก Code |
+| **EC2** | เครื่องหลักที่ใช้รัน K3s |
+| **K3s** | Kubernetes runtime สำหรับ Frontend, Backend, Jenkins และ Argo CD |
+| **Traefik** | รับ request จาก Internet แล้ว route ไป Frontend / Backend / Jenkins |
+| **Jenkins** | Continuous Integration: lint, test, build, scan และ push image |
+| **BuildKit** | Build container image แบบ rootless |
+| **Trivy** | Security Scan และบล็อก pipeline เมื่อพบช่องโหว่ระดับ CRITICAL |
+| **ECR** | Container Registry สำหรับเก็บ Frontend / Backend images |
+| **Argo CD** | Continuous Delivery แบบ GitOps |
+| **Kustomize** | จัดการ Kubernetes manifest และ image tag |
+| **cert-manager** | จัดการ TLS certificate จาก Let's Encrypt |
+| **SSM Session Manager** | ใช้เข้าถึง EC2 โดยไม่ต้องเปิด SSH port 22 |
+| **Discord** | รับแจ้งเตือน build / deploy / drift |
+
+---
+
+### ☁️ 0.5 ระบบรันอยู่ที่ไหน
+
+Runtime หลักอยู่บน **AWS Region `ap-southeast-1` (Singapore)**
+
+```text
+AWS
+│
+├── VPC
+│   └── Public Subnet
+│       └── EC2
+│           └── K3s Single-Node Cluster
+│               │
+│               ├── namespace: production
+│               │   ├── Next.js
+│               │   ├── Go Backend
+│               │   └── Smoke Test
+│               │
+│               ├── namespace: jenkins
+│               │   ├── Jenkins Controller
+│               │   └── Ephemeral Agent Pods
+│               │
+│               ├── namespace: argocd
+│               │   └── Argo CD
+│               │
+│               └── kube-system
+│                   ├── Traefik
+│                   ├── cert-manager
+│                   └── metrics-server
+│
+├── Amazon ECR
+│   ├── thai-gov-frontend
+│   └── thai-gov-backend
+│
+├── Amazon S3
+│   ├── User Files
+│   └── Terraform State
+│
+└── IAM
+```
+
+ระบบนี้ตั้งใจทำเป็น **production-like** เพื่อเรียนรู้ ไม่ใช่ High Availability Production เต็มรูปแบบ เพราะ K3s ยังรันอยู่บน EC2 เพียงเครื่องเดียว
+
+---
+
+### 🏗️ 0.6 Terraform ทำอะไร
+
+Terraform รับผิดชอบ **Infrastructure** ไม่ใช่ Application Deployment
+
+```text
+Terraform
+│
+├── VPC
+├── Subnet
+├── Internet Gateway
+├── Route Table
+├── Security Group
+├── IAM
+├── EC2
+├── Elastic IP
+├── ECR
+└── S3
+```
+
+Workflow โดยย่อ:
+
+```text
+แก้ Infrastructure Code
+        │
+        ▼
+Pull Request
+        │
+        ▼
+terraform fmt / validate / plan
+        │
+        ▼
+Review
+        │
+        ▼
+terraform apply
+        │
+        ▼
+AWS Infrastructure
+```
+
+จุดสำคัญคือ Infrastructure สามารถสร้างใหม่ซ้ำได้จาก Code และสามารถ `terraform destroy` หลังเดโมเพื่อควบคุมค่าใช้จ่าย
+
+---
+
+### 🔐 0.7 Security และ Privacy ที่ตั้งใจเรียนรู้
+
+โปรเจกต์นี้มี Security Controls หลายระดับ:
+
+```text
+Source Code
+   │
+   ├── Lint
+   ├── Unit Test
+   └── Trivy Secret Scan
+   │
+   ▼
+Container
+   │
+   ├── non-root
+   ├── read-only filesystem
+   └── drop capabilities
+   │
+   ▼
+Kubernetes
+   │
+   ├── RBAC
+   ├── readiness/liveness probe
+   └── GitOps self-heal
+   │
+   ▼
+AWS
+   │
+   ├── IAM least privilege
+   ├── IMDSv2
+   ├── encrypted EBS
+   ├── S3 encryption
+   └── SSM instead of SSH
+```
+
+สำหรับข้อมูลของผู้ใช้:
+
+- Original file จะถูกลบหลังประมวลผล
+- Processed file เก็บชั่วคราว
+- Presigned URL มีอายุจำกัด
+- S3 Lifecycle ทำหน้าที่ลบไฟล์ที่หมดอายุ
+- ไม่ควรเก็บชื่อไฟล์หรือเนื้อหาไฟล์ลง Log
+- EXIF เช่น GPS metadata ควรถูกลบออก
+
+---
+
+### 🧠 0.8 ถ้าต้องอธิบายโปรเจกต์นี้ใน 30 วินาที
+
+> **Thai Gov Photo & Doc Processor เป็นเว็บสำหรับช่วยปรับรูปถ่ายและเอกสารให้ตรงกับข้อกำหนดของระบบสมัครหน่วยงานราชการ เช่น ขนาดภาพและขนาดไฟล์ โดยใช้ Next.js และ Go เป็น Application และใช้โปรเจกต์นี้เป็นกรณีศึกษาสำหรับสร้าง DevOps Pipeline แบบครบวงจร ตั้งแต่ Terraform สร้าง Infrastructure บน AWS, รัน Application บน K3s, Jenkins ทำ CI และ Security Scan, เก็บ Container Image บน ECR และใช้ Argo CD Deploy แบบ GitOps ไปยัง Production**
+
+ถ้าอธิบายให้สั้นที่สุด:
+
+> **Application เป็นโจทย์จริง ส่วนเป้าหมายหลักคือเรียนรู้ Software Delivery ตั้งแต่ Code → Test → Security → Infrastructure → Deploy → Production บน Cloud**
+
+---
+
+### 🗺️ 0.9 ควรอ่าน README นี้ต่ออย่างไร
+
+ถ้าเพิ่งเริ่มโปรเจกต์ แนะนำให้อ่านตามลำดับนี้:
+
+```text
+0. โปรเจกต์นี้คืออะไร
+        ↓
+1. ปัญหาและที่มา
+        ↓
+2. ฟีเจอร์
+        ↓
+3. Architecture
+        ↓
+4. CI/CD Pipeline
+        ↓
+5. AWS Runtime
+        ↓
+6. Terraform
+        ↓
+7. Tech Stack
+        ↓
+10. Build Checklist
+        ↓
+11–16 รายละเอียดเชิงลึก
+```
+
+ถ้าต้องการ **ลงมือสร้างจริง** ให้ใช้ Build Checklist ในหัวข้อ 10 เป็นลำดับหลัก:
+
+```text
+Phase 0  App MVP
+   ↓
+Phase 1  Terraform
+   ↓
+Phase 2  Cluster Platform
+   ↓
+Phase 3  Kubernetes Manifests
+   ↓
+Phase 4  Jenkins CI
+   ↓
+Phase 5  Argo CD
+   ↓
+Phase 6  Drift / Budget / Evidence
+```
+
+---
+
 ## 📑 สารบัญ
 
+0. [โปรเจกต์นี้คืออะไร? (อ่านตรงนี้ก่อน)](#-0-โปรเจกต์นี้คืออะไร-อ่านตรงนี้ก่อน)
 1. [ปัญหาและที่มา](#-1-ปัญหาและที่มา)
 2. [ฟีเจอร์](#-2-ฟีเจอร์)
 3. [ภาพรวมสถาปัตยกรรม](#-3-ภาพรวมสถาปัตยกรรม)
