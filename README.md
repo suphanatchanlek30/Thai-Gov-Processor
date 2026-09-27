@@ -517,44 +517,9 @@ Phase 6  Drift / Budget / Evidence
 
 ภาพนี้แสดงระบบทั้งหมดในภาพเดียว ส่วนรายละเอียดของแต่ละส่วนอยู่ในหัวข้อถัดไป
 
-```mermaid
-flowchart LR
-    dev(["👩‍💻 Developer"])
-    user(["👤 ผู้ใช้"])
-    gh["🐙 GitHub<br/>monorepo"]
-    jenkins["⚙️ Jenkins<br/>CI"]
-    argo["🔄 Argo CD<br/>CD / GitOps"]
-    ecr[("📦 Amazon ECR")]
-    s3[("🪣 Amazon S3<br/>ไฟล์ชั่วคราว")]
-    k3s["☸️ K3s บน EC2<br/>frontend + backend"]
-    tf["🏗️ Terraform"]
-    discord["💬 Discord"]
-
-    dev -->|"1 · push / PR"| gh
-    gh -->|"2 · webhook"| jenkins
-    jenkins -->|"3 · push image"| ecr
-    jenkins -->|"4 · commit tag ใหม่"| gh
-    argo -->|"5 · เฝ้าดู repo"| gh
-    argo -->|"6 · sync"| k3s
-    ecr -->|"pull image"| k3s
-    jenkins & argo -->|แจ้งเตือน| discord
-
-    user -->|HTTPS| k3s
-    k3s -->|เก็บ/อ่านไฟล์| s3
-
-    tf -.->|สร้าง| k3s
-    tf -.->|สร้าง| ecr
-    tf -.->|สร้าง| s3
-
-    classDef ci fill:#e8ebff,stroke:#3f4fc2,color:#1b2270
-    classDef cd fill:#e3f4e8,stroke:#2b7f43,color:#14401f
-    classDef aws fill:#fff1e0,stroke:#b8600a,color:#5a2f04
-    classDef iac fill:#efe6fb,stroke:#6d3fba,color:#34185e
-    class jenkins ci
-    class argo cd
-    class ecr,s3,k3s aws
-    class tf iac
-```
+<p align="center">
+  <img src="Architecture%20diagram/Project%20CICD%20FUll.drawio-2.svg" alt="Thai Gov Photo & Doc Processor — Architecture Diagram" width="850" />
+</p>
 
 **สรุปใน 1 ประโยค:** Jenkins ทำหน้าที่ *ตรวจและแพ็ก* โค้ด (CI) แล้วเขียนเวอร์ชันใหม่ลง Git จากนั้น Argo CD *อ่าน Git แล้วเอาขึ้นเว็บจริง* (CD) ส่วน Terraform เป็นคน *สร้างเครื่องและบริการ* บน AWS ทั้งหมด
 
