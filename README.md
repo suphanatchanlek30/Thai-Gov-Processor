@@ -11,7 +11,7 @@
 ![AWS](https://img.shields.io/badge/Cloud-AWS-FF9900?logo=amazonaws&logoColor=white)
 ![Trivy](https://img.shields.io/badge/Security-Trivy-1904DA?logo=aqua&logoColor=white)
 
-โปรเจกต์นี้ทำขึ้นเพื่อเรียนรู้และฝึกงาน DevOps แบบครบวงจร ตั้งแต่ Infrastructure as Code, container, Kubernetes, CI/CD, security scanning ไปจนถึง GitOps โดยใช้เว็บแปลงรูป/เอกสารเป็น workload จริงสำหรับทดสอบ pipeline ไม่ใช่จุดขายหลักของโปรเจกต์
+โปรเจกต์นี้ทำขึ้นเพื่อเรียนรู้ DevOps แบบครบวงจร ตั้งแต่ Infrastructure as Code, container, Kubernetes, CI/CD, security scanning ไปจนถึง GitOps โดยใช้เว็บแปลงรูป/เอกสารเป็น workload จริงสำหรับทดสอบ pipeline ไม่ใช่จุดขายหลักของโปรเจกต์
 
 > ระบบนี้เป็น production-like บน EC2 เครื่องเดียว ไม่ได้ออกแบบมาเพื่อ high availability — ข้อจำกัดและแนวทางต่อยอดอยู่ที่ [docs/roadmap.md](docs/roadmap.md)
 
