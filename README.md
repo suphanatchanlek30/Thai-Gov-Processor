@@ -108,10 +108,10 @@ Sequence diagram ของการ deploy, ประวัติ Git จริ�
 
 ```text
 thai-gov-processor/
-├── backend/                         # Go API
-│   ├── cmd/api/main.go              # entry point, router, graceful shutdown
+├── backend/                         # Go + Gin API
+│   ├── cmd/api/main.go              # entry point, Gin router, graceful shutdown
 │   ├── internal/
-│   │   ├── handler/                 # HTTP handlers (preset, merge-pdf, health, selftest)
+│   │   ├── handler/                 # Gin handlers (preset, merge-pdf, health, selftest)
 │   │   ├── processor/               # resize + binary search compress, pdfcpu
 │   │   ├── storage/                 # S3 client + presigned URL
 │   │   └── preset/                  # ค่า preset ก.พ., passport, ครู

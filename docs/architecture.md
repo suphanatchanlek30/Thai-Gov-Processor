@@ -134,7 +134,7 @@ flowchart TB
                     end
                     subgraph PROD["ns: production"]
                         fe["Frontend<br/>Next.js × 2"]
-                        be["Backend<br/>Go + libvips<br/>HPA 2–4"]
+                        be["Backend<br/>Go + Gin + libvips<br/>HPA 2–4"]
                         smoke["smoke-test Job"]
                     end
                     subgraph JNS["ns: jenkins"]
@@ -186,7 +186,7 @@ sequenceDiagram
     actor U as ผู้ใช้
     participant T as Traefik
     participant FE as Frontend (Next.js)
-    participant BE as Backend (Go)
+    participant BE as Backend (Go + Gin)
     participant S3 as Amazon S3
 
     U->>T: เปิด https://app.example.com

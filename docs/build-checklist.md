@@ -12,6 +12,7 @@ flowchart LR
 ใช้เวลากับส่วนนี้ไม่เกิน 30% ของทั้งโปรเจกต์
 
 - [ ] **Backend: endpoint ครบ 5 ตัว** ได้แก่ `/healthz`, `/api/v1/presets`, `/api/v1/photos/preset`, `/api/v1/documents/merge-pdf`, `/api/v1/selftest`
+  - คำใบ้: ใช้ Gin เป็น router (`gin.New()` + logger/recovery middleware เอง แทน `gin.Default()` เพราะ container รันแบบ read-only filesystem ไม่ต้องพึ่ง default logger ที่เขียนไฟล์)
   - คำใบ้: ทำ preset ก.พ. ให้ใช้ได้ก่อนตัวเดียว ตัวอื่นค่อยเพิ่มทีหลัง
   - เช็ค: ส่งรูป 3 MB เข้าไปแล้วได้ไฟล์ 200×230 ที่ ≤ 100 KB กลับมา
   - เช็ค `merge-pdf`: ส่งรูป 2 ใบ + PDF เดิม 1 ไฟล์ (2 หน้า) เข้าไปพร้อมกัน ต้องได้ PDF เดียวที่มี 4 หน้าตามลำดับที่ส่ง

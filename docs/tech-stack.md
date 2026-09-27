@@ -6,6 +6,7 @@
 | --- | --- |
 | Next.js | Frontend สำหรับ Upload, เลือก Preset, Crop และ Preview |
 | Go | Backend API สำหรับ resize, compress และสร้างไฟล์ผลลัพธ์ |
+| Gin | HTTP web framework ของ Backend — routing, middleware, request binding |
 | S3 | เก็บไฟล์ผู้ใช้และไฟล์ผลลัพธ์แบบชั่วคราว |
 | Terraform | สร้าง AWS Infrastructure จาก Code |
 | EC2 | เครื่องหลักที่ใช้รัน K3s |
@@ -26,6 +27,7 @@
 | ส่วนประกอบ | เลือกใช้ | เหตุผล | ทางเลือกที่ไม่เลือก และเหตุผล |
 | --- | --- | --- | --- |
 | Backend | Go 1.22 | binary เล็ก, ใช้ memory น้อย, concurrency ดี | Node.js: ใช้ memory มากกว่าในงานประมวลผลภาพ |
+| Web framework | Gin | สร้างบน `net/http` มาตรฐาน เลยใช้ middleware ของ community (Prometheus, OpenTelemetry) และ `context.Context` เรียก AWS SDK v2 ตรงๆ ได้ | Fiber: เร็วกว่าตรงที่สร้างบน `fasthttp` แต่ไม่ compatible กับ `net/http`, middleware ที่ใช้ได้น้อยกว่า, และ `fasthttp.RequestCtx` ถูก pool ใช้ซ้ำ ต้อง copy เองก่อนส่งเข้า goroutine ไม่งั้นข้อมูลเพี้ยน — คอขวดจริงของแอปนี้คือ libvips ไม่ใช่ HTTP layer จึงไม่ได้ประโยชน์จากความเร็วส่วนนี้ |
 | Image processing | bimg (libvips) | เร็วและใช้ memory น้อยกว่า ImageMagick มาก | ImageMagick: หนักกว่า |
 | PDF | pdfcpu | pure Go, merge และ optimize ได้ | Ghostscript: ต้องเรียก binary ภายนอก |
 | Frontend | Next.js 14 + Tailwind | crop และ preview ฝั่ง client, standalone build เล็ก | – |
