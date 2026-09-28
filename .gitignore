@@ -1,1 +1,12 @@
 .DS_Store
+
+# Go
+backend/bin/
+backend/api
+backend/*.test
+
+# Node / Next.js
+node_modules/
+.next/
+frontend/.env*.local
+

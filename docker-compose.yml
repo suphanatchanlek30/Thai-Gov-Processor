@@ -1,0 +1,69 @@
+services:
+  # minio/minio and minio/mc are no longer pullable from Docker Hub without
+  # a paid subscription login (MinIO gated their official images in 2025);
+  # bitnamilegacy is the community-maintained mirror that still serves the
+  # same minio server / mc client binaries anonymously.
+  minio:
+    image: bitnamilegacy/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  createbuckets:
+    image: bitnamilegacy/minio-client:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc mb -p local/thai-gov-processor &&
+        exit 0
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      # Presigned download URLs go to the browser on the host, which can't
+      # resolve the "minio" service name, so they're signed against the
+      # host-published port instead.
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_REGION: ap-southeast-1
+      S3_BUCKET: thai-gov-processor
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_FORCE_PATH_STYLE: "true"
+    depends_on:
+      minio:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+    depends_on:
+      - backend
+
+volumes:
+  minio-data:
