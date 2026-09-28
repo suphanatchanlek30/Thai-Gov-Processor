@@ -8,18 +8,18 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/apierr"
-	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/processor"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service"
 )
 
 const defaultTargetMaxKB = 500
 
 // MergePDF handles POST /api/v1/documents/merge-pdf: validates each
-// uploaded file (image or PDF), runs them through the PDFMerger in the
-// order they were submitted, stores the result, and returns a presigned
+// uploaded file (image or PDF), runs them through the DocumentService in
+// the order they were submitted, stores the result, and returns a presigned
 // download URL.
 //
-// While PDFMerger is the stub implementation this always returns 501 after
-// passing validation — validation itself is fully enforced today.
+// While DocumentService is the stub implementation this always returns 501
+// after passing validation — validation itself is fully enforced today.
 func (h *Handler) MergePDF(c *gin.Context) {
 	maxBytes := h.MaxUploadMB * 1024 * 1024
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
@@ -50,7 +50,7 @@ func (h *Handler) MergePDF(c *gin.Context) {
 		return
 	}
 
-	inputs := make([]processor.InputFile, 0, len(fileHeaders))
+	inputs := make([]service.InputFile, 0, len(fileHeaders))
 	for _, fh := range fileHeaders {
 		f, err := fh.Open()
 		if err != nil {
@@ -74,16 +74,16 @@ func (h *Handler) MergePDF(c *gin.Context) {
 			return
 		}
 
-		inputs = append(inputs, processor.InputFile{
+		inputs = append(inputs, service.InputFile{
 			Name:        fh.Filename,
 			Data:        data,
 			ContentType: contentType,
 		})
 	}
 
-	result, err := h.PDFs.Merge(inputs, targetMaxKB)
+	result, err := h.DocumentService.Merge(inputs, targetMaxKB)
 	if err != nil {
-		writeProcessorError(c, err)
+		writeServiceError(c, err)
 		return
 	}
 

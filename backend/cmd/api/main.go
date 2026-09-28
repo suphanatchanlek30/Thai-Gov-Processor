@@ -1,8 +1,8 @@
 // Command api is the Thai Gov Photo & Doc Processor backend entry point.
 //
 // This is the Phase 0 scaffold: routing, validation, storage and the
-// PhotoProcessor/PDFMerger contracts are all real, but the processors
-// themselves are temporary stubs (internal/processor/stub) that return 501
+// PhotoService/DocumentService contracts are all real, but the services
+// themselves are temporary stubs (internal/service/stub) that return 501
 // until a follow-up PR wires in the real image/PDF processing.
 package main
 
@@ -20,7 +20,7 @@ import (
 
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/handler"
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/middleware"
-	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/processor/stub"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/stub"
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/storage"
 )
 
@@ -37,16 +37,16 @@ func main() {
 		log.Fatalf("storage: %v", err)
 	}
 
-	// --- Processor wiring -------------------------------------------------
+	// --- Service wiring -----------------------------------------------------
 	// These two lines are the entire seam for the follow-up
-	// feat/image-pdf-processor PR: swap stub.NewNotImplementedPhotoProcessor
-	// / stub.NewNotImplementedPDFMerger for the real constructors and
+	// feat/image-pdf-processor PR: swap stub.NewNotImplementedPhotoService /
+	// stub.NewNotImplementedDocumentService for the real constructors and
 	// nothing else in this file (or in internal/handler) needs to change.
-	photoProcessor := stub.NewNotImplementedPhotoProcessor()
-	pdfMerger := stub.NewNotImplementedPDFMerger()
-	// ------------------------------------------------------------------
+	photoService := stub.NewNotImplementedPhotoService()
+	documentService := stub.NewNotImplementedDocumentService()
+	// -------------------------------------------------------------------
 
-	h := handler.New(photoProcessor, pdfMerger, storageClient, presignTTL, maxUploadMB)
+	h := handler.New(photoService, documentService, storageClient, presignTTL, maxUploadMB)
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()

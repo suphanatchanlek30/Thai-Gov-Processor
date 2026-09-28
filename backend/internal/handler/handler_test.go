@@ -9,14 +9,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/processor/stub"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/stub"
 )
 
 func newTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	h := New(
-		stub.NewNotImplementedPhotoProcessor(),
-		stub.NewNotImplementedPDFMerger(),
+		stub.NewNotImplementedPhotoService(),
+		stub.NewNotImplementedDocumentService(),
 		nil, // storage.Client: unused by the routes exercised in these tests
 		time.Hour,
 		15,

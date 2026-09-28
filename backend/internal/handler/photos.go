@@ -12,10 +12,10 @@ import (
 )
 
 // PhotoPreset handles POST /api/v1/photos/preset: validates the upload and
-// the chosen preset, runs it through the PhotoProcessor, stores the result,
+// the chosen preset, runs it through the PhotoService, stores the result,
 // and returns a presigned download URL.
 //
-// While PhotoProcessor is the stub implementation this always returns 501
+// While PhotoService is the stub implementation this always returns 501
 // after passing validation — validation itself is fully enforced today.
 func (h *Handler) PhotoPreset(c *gin.Context) {
 	maxBytes := h.MaxUploadMB * 1024 * 1024
@@ -88,9 +88,9 @@ func (h *Handler) PhotoPreset(c *gin.Context) {
 		return
 	}
 
-	result, err := h.Photos.ProcessPreset(data, presetName, custom)
+	result, err := h.PhotoService.ProcessPreset(data, presetName, custom)
 	if err != nil {
-		writeProcessorError(c, err)
+		writeServiceError(c, err)
 		return
 	}
 

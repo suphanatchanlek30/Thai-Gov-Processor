@@ -22,9 +22,9 @@ var sampleJPEG []byte
 // can verify the whole photo pipeline — resize + compress + storage — end
 // to end without a real user upload.
 //
-// While PhotoProcessor is still the stub implementation this always
-// returns 501; once the real processor lands it will resize the fixture to
-// 200x230 and return 200.
+// While PhotoService is still the stub implementation this always returns
+// 501; once the real service lands it will resize the fixture to 200x230
+// and return 200.
 func (h *Handler) Selftest(c *gin.Context) {
 	ocsc, ok := preset.Lookup(preset.OCSC)
 	if !ok {
@@ -33,9 +33,9 @@ func (h *Handler) Selftest(c *gin.Context) {
 		return
 	}
 
-	result, err := h.Photos.ProcessPreset(sampleJPEG, preset.OCSC, nil)
+	result, err := h.PhotoService.ProcessPreset(sampleJPEG, preset.OCSC, nil)
 	if err != nil {
-		writeProcessorError(c, err)
+		writeServiceError(c, err)
 		return
 	}
 

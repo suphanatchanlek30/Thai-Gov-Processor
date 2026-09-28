@@ -1,11 +1,14 @@
-// Package processor defines the contracts for photo resizing/compression
-// and PDF merging. This file is the ground truth for the follow-up
-// "feat/image-pdf-processor" PR: it implements PhotoProcessor and PDFMerger
-// for real (resize + binary-search JPEG quality search, pdfcpu-based
-// merge). Handlers in internal/handler only depend on these interfaces, so
-// swapping the stub package in internal/processor/stub for a real
-// implementation is a one-line change in cmd/api/main.go.
-package processor
+// Package service defines the contracts for photo resizing/compression and
+// PDF merging — the business-logic layer sitting between the HTTP handlers
+// (internal/handler) and the underlying image/PDF libraries.
+//
+// This file is the ground truth for the follow-up "feat/image-pdf-processor"
+// PR: it implements PhotoService and DocumentService for real (resize +
+// binary-search JPEG quality search, pdfcpu-based merge). Handlers only
+// depend on these interfaces, so swapping the stub package in
+// internal/service/stub for a real implementation is a one-line change in
+// cmd/api/main.go.
+package service
 
 import (
 	"errors"
@@ -17,9 +20,9 @@ import (
 // to pick the right HTTP status, so both the stub and the real
 // implementation can share the same handler code path.
 var (
-	// ErrNotImplemented means the processor is still the temporary stub
-	// (internal/processor/stub). Handlers map this to HTTP 501.
-	ErrNotImplemented = errors.New("processor not implemented")
+	// ErrNotImplemented means the service is still the temporary stub
+	// (internal/service/stub). Handlers map this to HTTP 501.
+	ErrNotImplemented = errors.New("service not implemented")
 
 	// ErrCannotMeetTarget means no JPEG quality in the allowed range (or no
 	// merge strategy) got the output under the requested max_kb without an
@@ -56,9 +59,9 @@ type MergedPDF struct {
 	SizeKB     float64
 }
 
-// PhotoProcessor resizes/crops an input image to a preset's target
-// dimensions and compresses it (binary search on JPEG quality) so the
-// output does not exceed the preset's max_kb.
+// PhotoService resizes/crops an input image to a preset's target dimensions
+// and compresses it (binary search on JPEG quality) so the output does not
+// exceed the preset's max_kb.
 //
 // input is the raw uploaded image bytes (JPEG/PNG/WEBP). presetName is one
 // of "ocsc", "passport", "teacher", "custom". When presetName is "custom",
@@ -68,12 +71,13 @@ type MergedPDF struct {
 // Implementations should return an error wrapping a 422-appropriate
 // condition (via the caller mapping it through internal/apierr) when no
 // quality in the allowed range fits under max_kb.
-type PhotoProcessor interface {
+type PhotoService interface {
 	ProcessPreset(input []byte, presetName string, custom *preset.Custom) (ProcessedImage, error)
 }
 
-// PDFMerger combines images and/or existing PDFs into a single PDF, in the
-// order given by files, attempting to keep the result under targetMaxKB.
-type PDFMerger interface {
+// DocumentService combines images and/or existing PDFs into a single PDF, in
+// the order given by files, attempting to keep the result under
+// targetMaxKB.
+type DocumentService interface {
 	Merge(files []InputFile, targetMaxKB int) (MergedPDF, error)
 }
