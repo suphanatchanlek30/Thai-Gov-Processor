@@ -2,15 +2,18 @@ services:
   # minio/minio and minio/mc are no longer pullable from Docker Hub without
   # a paid subscription login (MinIO gated their official images in 2025);
   # bitnamilegacy is the community-maintained mirror that still serves the
-  # same minio server / mc client binaries anonymously.
+  # same minio server / mc client binaries anonymously. Pinned to
+  # 2025.3.12 (not :latest) because MinIO removed the web Console from
+  # builds after this point — :latest starts but the console port just
+  # resets every connection.
   minio:
-    image: bitnamilegacy/minio:latest
+    image: bitnamilegacy/minio:2025.3.12-debian-12-r3
     ports:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio-data:/bitnami/minio/data
     healthcheck:
@@ -20,15 +23,19 @@ services:
       retries: 10
 
   createbuckets:
-    image: bitnamilegacy/minio-client:latest
+    image: bitnamilegacy/minio-client:2025.3.12-debian-12-r2
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-thai-gov-processor}
     command:
       - |
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb -p local/thai-gov-processor &&
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb -p "local/$$S3_BUCKET" &&
         exit 0
 
   backend:
@@ -43,10 +50,11 @@ services:
       # host-published port instead.
       S3_PUBLIC_ENDPOINT: http://localhost:9000
       S3_REGION: ap-southeast-1
-      S3_BUCKET: thai-gov-processor
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: ${S3_BUCKET:-thai-gov-processor}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       S3_FORCE_PATH_STYLE: "true"
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     depends_on:
       minio:
         condition: service_healthy

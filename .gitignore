@@ -10,3 +10,7 @@ node_modules/
 .next/
 frontend/.env*.local
 
+# Local env files (real dev values; .env.example stays tracked)
+.env
+backend/.env
+
