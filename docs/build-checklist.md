@@ -11,21 +11,21 @@ flowchart LR
 
 ใช้เวลากับส่วนนี้ไม่เกิน 30% ของทั้งโปรเจกต์
 
-- [ ] **Backend: endpoint ครบ 5 ตัว** ได้แก่ `/healthz`, `/api/v1/presets`, `/api/v1/photos/preset`, `/api/v1/documents/merge-pdf`, `/api/v1/selftest`
+- [x] **Backend: endpoint ครบ 5 ตัว** ได้แก่ `/healthz`, `/api/v1/presets`, `/api/v1/photos/preset`, `/api/v1/documents/merge-pdf`, `/api/v1/selftest`
   - คำใบ้: ใช้ Gin เป็น router (`gin.New()` + logger/recovery middleware เอง แทน `gin.Default()` เพราะ container รันแบบ read-only filesystem ไม่ต้องพึ่ง default logger ที่เขียนไฟล์)
   - คำใบ้: ทำ preset ก.พ. ให้ใช้ได้ก่อนตัวเดียว ตัวอื่นค่อยเพิ่มทีหลัง
-  - เช็ค: ส่งรูป 3 MB เข้าไปแล้วได้ไฟล์ 200×230 ที่ ≤ 100 KB กลับมา
-  - เช็ค `merge-pdf`: ส่งรูป 2 ใบ + PDF เดิม 1 ไฟล์ (2 หน้า) เข้าไปพร้อมกัน ต้องได้ PDF เดียวที่มี 4 หน้าตามลำดับที่ส่ง
-- [ ] **Unit test ของ processor** อย่างน้อย 3 กรณี: รูปใหญ่, รูปเล็กอยู่แล้ว และรูปที่บีบให้ต่ำกว่าเกณฑ์ไม่ได้
-  - เช็ค: test ผ่านเมื่อรันพร้อม race detector
-- [ ] **Unit test ของ merge-pdf** อย่างน้อย 2 กรณี: รวมเฉพาะรูป และรวมรูปผสมกับ PDF หลายหน้า
-  - เช็ค: จำนวนหน้าและลำดับหน้าของผลลัพธ์ตรงกับไฟล์ที่ส่งเข้ามา
-- [ ] **Backend Dockerfile** แบบ multi-stage และ runtime รันด้วย user ที่ไม่ใช่ root
+  - เช็ค: ส่งรูป 3 MB เข้าไปแล้วได้ไฟล์ 200×230 ที่ ≤ 100 KB กลับมา — ✅ ทดสอบจริงกับรูป noise 5 MB ได้ 200×230 @ 39.3 KB, quality 95
+  - เช็ค `merge-pdf`: ส่งรูป 2 ใบ + PDF เดิม 1 ไฟล์ (2 หน้า) เข้าไปพร้อมกัน ต้องได้ PDF เดียวที่มี 4 หน้าตามลำดับที่ส่ง — ✅ ทดสอบจริง ได้ 4 หน้าตามลำดับ (ตรวจสีแต่ละหน้ายืนยันลำดับ)
+- [x] **Unit test ของ processor** อย่างน้อย 3 กรณี: รูปใหญ่, รูปเล็กอยู่แล้ว และรูปที่บีบให้ต่ำกว่าเกณฑ์ไม่ได้
+  - เช็ค: test ผ่านเมื่อรันพร้อม race detector — ✅ `go test ./... -race` ผ่าน
+- [x] **Unit test ของ merge-pdf** อย่างน้อย 2 กรณี: รวมเฉพาะรูป และรวมรูปผสมกับ PDF หลายหน้า
+  - เช็ค: จำนวนหน้าและลำดับหน้าของผลลัพธ์ตรงกับไฟล์ที่ส่งเข้ามา — ✅
+- [x] **Backend Dockerfile** แบบ multi-stage และ runtime รันด้วย user ที่ไม่ใช่ root
   - คำใบ้: bimg ใช้ cgo จึงต้องมี libvips แบบ dev ใน stage build และแบบ runtime ใน stage สุดท้าย
-  - เช็ค: image สุดท้ายเล็กกว่า image ของ stage build อย่างเห็นได้ชัด และ `whoami` ใน container ไม่ใช่ root
-- [ ] **Frontend แบบเรียบง่าย** มีหน้า upload, ตัวเลือก preset และปุ่มดาวน์โหลด (cropper ค่อยเพิ่มทีหลัง)
-  - คำใบ้: ให้เบราว์เซอร์เรียก `/api/...` ตรง ไม่ต้องทำ proxy route ใน Next.js เพราะ Ingress จะแยก path ให้
-- [ ] **Docker Compose** รัน 3 service ได้แก่ frontend, backend และ MinIO
+  - เช็ค: image สุดท้ายเล็กกว่า image ของ stage build อย่างเห็นได้ชัด และ `whoami` ใน container ไม่ใช่ root — ✅ 3.98 GB → 359 MB, `whoami` = `app`
+- [x] **Frontend แบบเรียบง่าย** มีหน้า upload, ตัวเลือก preset และปุ่มดาวน์โหลด (cropper ค่อยเพิ่มทีหลัง)
+  - คำใบ้: ให้เบราว์เซอร์เรียก `/api/...` ตรง ไม่ต้องทำ proxy route ใน Next.js เพราะ Ingress จะแยก path ให้ — local dev ไม่มี Ingress จึงใช้ `NEXT_PUBLIC_API_BASE_URL` แทน
+- [x] **Docker Compose** รัน 3 service ได้แก่ frontend, backend และ MinIO — ✅ ผ่าน `docker compose up`, ทุก endpoint ตอบ 200
 
 ## Phase 1 · Terraform
 
