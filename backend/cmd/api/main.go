@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/handler"
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/middleware"
@@ -21,6 +22,8 @@ import (
 )
 
 func main() {
+	_ = godotenv.Load() // no-op if .env is absent (e.g. running inside docker-compose)
+
 	port := envOr("PORT", "8080")
 	maxUploadMB := envInt64Or("MAX_UPLOAD_MB", 15)
 	presignTTL := time.Duration(envInt64Or("PRESIGN_TTL_SECONDS", 3600)) * time.Second

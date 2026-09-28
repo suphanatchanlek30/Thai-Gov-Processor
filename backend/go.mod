@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.80.1
 	github.com/gin-gonic/gin v1.10.1
 	github.com/h2non/bimg v1.1.9
+	github.com/joho/godotenv v1.5.1
 	github.com/pdfcpu/pdfcpu v0.9.1
 )
 
