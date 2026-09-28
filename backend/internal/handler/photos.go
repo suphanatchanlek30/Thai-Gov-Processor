@@ -11,12 +11,6 @@ import (
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/preset"
 )
 
-// PhotoPreset handles POST /api/v1/photos/preset: validates the upload and
-// the chosen preset, runs it through the PhotoService, stores the result,
-// and returns a presigned download URL.
-//
-// While PhotoService is the stub implementation this always returns 501
-// after passing validation — validation itself is fully enforced today.
 func (h *Handler) PhotoPreset(c *gin.Context) {
 	maxBytes := h.MaxUploadMB * 1024 * 1024
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)

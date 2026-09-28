@@ -1,9 +1,4 @@
 // Command api is the Thai Gov Photo & Doc Processor backend entry point.
-//
-// This is the Phase 0 scaffold: routing, validation, storage and the
-// PhotoService/DocumentService contracts are all real, but the services
-// themselves are temporary stubs (internal/service/stub) that return 501
-// until a follow-up PR wires in the real image/PDF processing.
 package main
 
 import (
@@ -37,14 +32,9 @@ func main() {
 		log.Fatalf("storage: %v", err)
 	}
 
-	// --- Service wiring -----------------------------------------------------
-	// These two lines are the entire seam for the follow-up
-	// feat/image-pdf-processor PR: swap stub.NewNotImplementedPhotoService /
-	// stub.NewNotImplementedDocumentService for the real constructors and
-	// nothing else in this file (or in internal/handler) needs to change.
+	// Swap these two for real implementations once feat/image-pdf-processor lands.
 	photoService := stub.NewNotImplementedPhotoService()
 	documentService := stub.NewNotImplementedDocumentService()
-	// -------------------------------------------------------------------
 
 	h := handler.New(photoService, documentService, storageClient, presignTTL, maxUploadMB)
 

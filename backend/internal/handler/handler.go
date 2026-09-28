@@ -1,5 +1,3 @@
-// Package handler wires HTTP requests to the service/storage layers and
-// shapes the JSON responses documented in docs/api-reference.md.
 package handler
 
 import (
@@ -11,9 +9,6 @@ import (
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/storage"
 )
 
-// Handler bundles the dependencies every route needs: the (currently stub)
-// services, the object storage client, and a couple of runtime knobs read
-// from env in cmd/api/main.go.
 type Handler struct {
 	PhotoService    service.PhotoService
 	DocumentService service.DocumentService
@@ -22,7 +17,6 @@ type Handler struct {
 	MaxUploadMB     int64
 }
 
-// New builds a Handler.
 func New(photoService service.PhotoService, documentService service.DocumentService, store storage.Client, presignTTL time.Duration, maxUploadMB int64) *Handler {
 	return &Handler{
 		PhotoService:    photoService,
@@ -33,7 +27,6 @@ func New(photoService service.PhotoService, documentService service.DocumentServ
 	}
 }
 
-// Register mounts every route onto the given router/group.
 func (h *Handler) Register(r gin.IRouter) {
 	r.GET("/healthz", h.Healthz)
 

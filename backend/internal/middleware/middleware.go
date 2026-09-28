@@ -1,7 +1,6 @@
-// Package middleware provides minimal request logging and panic recovery
-// for gin.New() (as opposed to gin.Default(), which pulls in gin's own
-// logger that writes to os.Stdout with ANSI color codes and assumptions
-// that don't fit a read-only, structured-logging production container).
+// Package middleware provides minimal logging and panic recovery for
+// gin.New() — gin.Default() pulls in a logger with assumptions that don't
+// fit a read-only production container.
 package middleware
 
 import (
@@ -12,9 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Logger writes one line per request to the standard library logger:
-// method, path, status, and latency. Kept intentionally minimal — no file
-// writes, no external deps.
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -24,8 +20,6 @@ func Logger() gin.HandlerFunc {
 	}
 }
 
-// Recovery recovers from any panic in a handler, logs it, and responds
-// with a generic 500 JSON body instead of letting the connection die.
 func Recovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {

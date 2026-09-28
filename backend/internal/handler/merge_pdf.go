@@ -13,13 +13,6 @@ import (
 
 const defaultTargetMaxKB = 500
 
-// MergePDF handles POST /api/v1/documents/merge-pdf: validates each
-// uploaded file (image or PDF), runs them through the DocumentService in
-// the order they were submitted, stores the result, and returns a presigned
-// download URL.
-//
-// While DocumentService is the stub implementation this always returns 501
-// after passing validation — validation itself is fully enforced today.
 func (h *Handler) MergePDF(c *gin.Context) {
 	maxBytes := h.MaxUploadMB * 1024 * 1024
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
