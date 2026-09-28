@@ -2,9 +2,12 @@ services:
   # minio/minio and minio/mc are no longer pullable from Docker Hub without
   # a paid subscription login (MinIO gated their official images in 2025);
   # bitnamilegacy is the community-maintained mirror that still serves the
-  # same minio server / mc client binaries anonymously.
+  # same minio server / mc client binaries anonymously. Pinned to
+  # 2025.3.12 (not :latest) because MinIO removed the web Console from
+  # builds after this point — :latest starts but the console port just
+  # resets every connection.
   minio:
-    image: bitnamilegacy/minio:latest
+    image: bitnamilegacy/minio:2025.3.12-debian-12-r3
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -20,7 +23,7 @@ services:
       retries: 10
 
   createbuckets:
-    image: bitnamilegacy/minio-client:latest
+    image: bitnamilegacy/minio-client:2025.3.12-debian-12-r2
     depends_on:
       minio:
         condition: service_healthy
