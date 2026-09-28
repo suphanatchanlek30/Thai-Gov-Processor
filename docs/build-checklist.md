@@ -29,18 +29,20 @@ flowchart LR
 
 ## Phase 1 · Terraform
 
-- [ ] **Remote state** เก็บบน S3 เปิด encrypt และ `use_lockfile`
-- [ ] **Network**: VPC, public subnet, Internet Gateway และ route table
-- [ ] **Security group**: เปิด 80/443 ให้ทุกที่, 6443 เฉพาะ IP ตัวเอง, ไม่เปิด 22
-- [ ] **IAM**: role + instance profile ที่ให้สิทธิ์เฉพาะ ECR 2 repo, S3 bucket เดียว และ SSM
+- [x] **Remote state** เก็บบน S3 เปิด encrypt และ `use_lockfile`
+- [x] **Network**: VPC, public subnet, Internet Gateway และ route table
+- [x] **Security group**: เปิด 80/443 ให้ทุกที่, 6443 เฉพาะ IP ตัวเอง, ไม่เปิด 22
+- [x] **IAM**: role + instance profile ที่ให้สิทธิ์เฉพาะ ECR 2 repo, S3 bucket เดียว และ SSM
   - คำใบ้: `ecr:GetAuthorizationToken` ต้องใช้ resource `*` ส่วน action อื่นให้จำกัดเฉพาะ ARN ของ repo
-- [ ] **EC2**: หา AMI ด้วย data source แทนการเขียน ID ตายตัว, บังคับ IMDSv2, เข้ารหัส EBS, ใช้ Elastic IP
+  - ✅ ตรวจ policy จริงจาก `aws iam get-role-policy` แล้ว ตรงตามคำใบ้เป๊ะ
+- [x] **EC2**: หา AMI ด้วย data source แทนการเขียน ID ตายตัว, บังคับ IMDSv2, เข้ารหัส EBS, ใช้ Elastic IP
   - คำใบ้: ตั้ง hop limit ของ metadata เป็น 2 ไม่อย่างนั้น pod จะใช้ IAM role ของเครื่องไม่ได้
   - คำใบ้: ส่ง IP ของ Elastic IP เข้าไปใน user_data ผ่าน template ไม่ต้องไปอ่านจาก metadata ตอนบูต
-- [ ] **ECR**: 2 repo แบบ IMMUTABLE, scan on push และ lifecycle policy เก็บ 10 image ล่าสุด
-- [ ] **S3 ไฟล์ผู้ใช้**: block public access, SSE, lifecycle หมดอายุ 1 วัน และลบ multipart upload ที่ค้าง
-- [ ] **Outputs**: instance id, public IP, ชื่อ bucket และ URL ของ ECR
-- เช็คทั้ง phase: `terraform fmt -check` และ `validate` ผ่าน, apply แล้ว plan ซ้ำต้องขึ้น *No changes*, destroy แล้ว apply ใหม่ต้องได้ระบบเดิม
+  - หมายเหตุ: บัญชี AWS นี้ติด restriction ใหม่ (Free Tier only) ชั่วคราว ใช้ `t3.micro` ผ่าน `terraform.tfvars` override แทน `t3a.large` ไปก่อน (ดู `variables.tf`) — สลับกลับได้ทันทีที่ AWS ปลดล็อก
+- [x] **ECR**: 2 repo แบบ IMMUTABLE, scan on push และ lifecycle policy เก็บ 10 image ล่าสุด
+- [x] **S3 ไฟล์ผู้ใช้**: block public access, SSE, lifecycle หมดอายุ 1 วัน และลบ multipart upload ที่ค้าง
+- [x] **Outputs**: instance id, public IP, ชื่อ bucket และ URL ของ ECR
+- เช็คทั้ง phase: `terraform fmt -check` และ `validate` ผ่าน, apply แล้ว plan ซ้ำต้องขึ้น *No changes*, destroy แล้ว apply ใหม่ต้องได้ระบบเดิม — ✅ ทดสอบจริงครบ: apply (26 resources) → plan ซ้ำ *No changes* → destroy (26 destroyed) → apply ใหม่ (26 added) → plan ซ้ำ *No changes* อีกรอบ
 
 ## Phase 2 · Cluster platform
 

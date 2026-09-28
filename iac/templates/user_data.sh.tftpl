@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+# Baked in at apply time (see ec2.tf for why) instead of querying instance
+# metadata after boot. Phase 2 extends this script to install K3s, which
+# needs this IP in its TLS SAN so `kubectl` from the admin machine works.
+echo "${elastic_ip}" > /etc/thai-gov-processor-eip
