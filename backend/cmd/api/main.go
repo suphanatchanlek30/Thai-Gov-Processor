@@ -15,7 +15,8 @@ import (
 
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/handler"
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/middleware"
-	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/stub"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/document"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/photo"
 	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/storage"
 )
 
@@ -32,9 +33,8 @@ func main() {
 		log.Fatalf("storage: %v", err)
 	}
 
-	// Swap these two for real implementations once feat/image-pdf-processor lands.
-	photoService := stub.NewNotImplementedPhotoService()
-	documentService := stub.NewNotImplementedDocumentService()
+	photoService := photo.NewService()
+	documentService := document.NewService()
 
 	h := handler.New(photoService, documentService, storageClient, presignTTL, maxUploadMB)
 

@@ -9,14 +9,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/stub"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/document"
+	"github.com/suphanatchanlek30/Thai-Gov-Processor/backend/internal/service/photo"
 )
 
 func newTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	h := New(
-		stub.NewNotImplementedPhotoService(),
-		stub.NewNotImplementedDocumentService(),
+		photo.NewService(),
+		document.NewService(),
 		nil, // storage.Client: unused by the routes exercised in these tests
 		time.Hour,
 		15,
@@ -56,10 +57,14 @@ func TestPresets(t *testing.T) {
 	}
 }
 
-func TestSelftest_ReturnsNotImplementedWhileProcessorIsStub(t *testing.T) {
+func TestSelftest_Succeeds(t *testing.T) {
 	r := newTestRouter()
 	w := doRequest(t, r, http.MethodGet, "/api/v1/selftest")
-	if w.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"width":200`) || !strings.Contains(body, `"height":230`) {
+		t.Errorf("expected ocsc dimensions 200x230 in response: %s", body)
 	}
 }
