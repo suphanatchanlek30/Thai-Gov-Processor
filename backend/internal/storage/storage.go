@@ -25,6 +25,7 @@ type Client interface {
 
 type Config struct {
 	Endpoint       string // custom endpoint (e.g. MinIO); empty = real AWS
+	PublicEndpoint string // endpoint to sign presigned URLs against, if different from Endpoint (e.g. MinIO reachable at a different host/port from outside Docker)
 	Region         string
 	Bucket         string
 	AccessKey      string
@@ -38,8 +39,14 @@ func ConfigFromEnv() Config {
 		region = "ap-southeast-1"
 	}
 	forcePathStyle, _ := strconv.ParseBool(os.Getenv("S3_FORCE_PATH_STYLE"))
+	endpoint := os.Getenv("S3_ENDPOINT")
+	publicEndpoint := os.Getenv("S3_PUBLIC_ENDPOINT")
+	if publicEndpoint == "" {
+		publicEndpoint = endpoint
+	}
 	return Config{
-		Endpoint:       os.Getenv("S3_ENDPOINT"),
+		Endpoint:       endpoint,
+		PublicEndpoint: publicEndpoint,
 		Region:         region,
 		Bucket:         os.Getenv("S3_BUCKET"),
 		AccessKey:      os.Getenv("S3_ACCESS_KEY"),
@@ -79,9 +86,24 @@ func New(ctx context.Context, cfg Config) (*S3Client, error) {
 		o.UsePathStyle = cfg.ForcePathStyle
 	})
 
+	// Presigned URLs are handed to callers outside our network (e.g. a
+	// browser), so they must be signed against PublicEndpoint rather than
+	// the internal Endpoint used for server-side Put/Get calls when the two
+	// differ (e.g. MinIO reachable as "minio:9000" from the backend
+	// container but only as "localhost:9000" from the host).
+	presignAPI := api
+	if cfg.PublicEndpoint != cfg.Endpoint {
+		presignAPI = s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+			if cfg.PublicEndpoint != "" {
+				o.BaseEndpoint = aws.String(cfg.PublicEndpoint)
+			}
+			o.UsePathStyle = cfg.ForcePathStyle
+		})
+	}
+
 	return &S3Client{
 		api:    api,
-		presig: s3.NewPresignClient(api),
+		presig: s3.NewPresignClient(presignAPI),
 		bucket: cfg.Bucket,
 	}, nil
 }
