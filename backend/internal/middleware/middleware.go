@@ -31,3 +31,28 @@ func Recovery() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// CORS allows the frontend (a different origin in local dev — the frontend
+// is on :3000, the API on :8080) to call the API from the browser. In
+// production these share one origin via Ingress path-splitting, so this
+// only matters locally.
+func CORS(allowedOrigins []string) gin.HandlerFunc {
+	allowed := make(map[string]bool, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = true
+	}
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if allowed[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Vary", "Origin")
+			c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type")
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
