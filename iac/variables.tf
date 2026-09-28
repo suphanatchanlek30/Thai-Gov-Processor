@@ -14,3 +14,8 @@ variable "project_name" {
 variable "admin_cidr" {
   type = string
 }
+
+variable "instance_type" {
+  type    = string
+  default = "t3a.large"
+}
