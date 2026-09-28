@@ -14,3 +14,12 @@ frontend/.env*.local
 .env
 backend/.env
 
+# Terraform (state lives remotely in S3; .terraform.lock.hcl IS committed
+# on purpose — it pins provider versions for reproducible plans)
+iac/.terraform/
+iac/*.tfstate
+iac/*.tfstate.*
+iac/*.tfplan
+iac/terraform.tfvars
+iac/crash.log
+
