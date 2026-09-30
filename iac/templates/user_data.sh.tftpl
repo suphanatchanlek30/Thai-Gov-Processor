@@ -2,6 +2,27 @@
 set -euo pipefail
 
 # Baked in at apply time (see ec2.tf for why) instead of querying instance
-# metadata after boot. Phase 2 extends this script to install K3s, which
-# needs this IP in its TLS SAN so `kubectl` from the admin machine works.
+# metadata after boot.
 echo "${elastic_ip}" > /etc/thai-gov-processor-eip
+
+# cloud-init starts seconds after boot, before Terraform has attached the
+# Elastic IP; the subnet's auto-assigned public IP is then swapped for the
+# EIP mid-script, which can drop an in-flight download. Retry each step
+# until the network has settled rather than letting `set -e` kill the boot.
+retry() {
+  until "$@"; do
+    echo "retrying in 5s: $*" >&2
+    sleep 5
+  done
+}
+
+retry curl -sfL https://get.k3s.io -o /tmp/k3s-install.sh
+
+# --tls-san adds the Elastic IP to the API server's certificate. Without it
+# kubectl from the admin machine fails with "certificate is valid for
+# 10.x.x.x, not <eip>" - the cert is otherwise only issued for the
+# instance's private IP and localhost.
+retry env INSTALL_K3S_VERSION="${k3s_version}" \
+  sh /tmp/k3s-install.sh server \
+    --tls-san "${elastic_ip}" \
+    --node-external-ip "${elastic_ip}"
