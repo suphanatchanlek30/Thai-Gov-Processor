@@ -52,6 +52,7 @@ flowchart LR
 - [ ] **ecr-credential-provider**
   - คำใบ้: K3s หา binary และ config ของ credential provider ใน `/var/lib/rancher/credentialprovider/` เป็นค่าเริ่มต้น
   - เช็ค: pod ยังดึง image จาก ECR ได้หลังผ่านไปเกิน 12 ชม.
+  - ผลทดสอบเบื้องต้น: pod ดึง image จาก ECR ได้โดยไม่มี `imagePullSecrets` เลย (ยืนยันว่า provider ทำงาน) — ⏳ ยังต้องรอเช็คข้อ >12 ชม. ด้วย pod ใหม่ที่ `imagePullPolicy: Always` (image ทดสอบ `credtest-1` อยู่ใน repo backend)
 - [ ] **cert-manager + ClusterIssuer** ของ Let's Encrypt แบบ HTTP-01
   - คำใบ้: ทดสอบกับ staging issuer ก่อน เพื่อไม่ให้ชน rate limit
   - เช็ค: เบราว์เซอร์ขึ้นแม่กุญแจ และ cert ออกโดย Let's Encrypt
