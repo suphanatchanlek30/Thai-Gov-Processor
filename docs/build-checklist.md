@@ -53,9 +53,11 @@ flowchart LR
   - คำใบ้: K3s หา binary และ config ของ credential provider ใน `/var/lib/rancher/credentialprovider/` เป็นค่าเริ่มต้น
   - เช็ค: pod ยังดึง image จาก ECR ได้หลังผ่านไปเกิน 12 ชม.
   - ผลทดสอบเบื้องต้น: pod ดึง image จาก ECR ได้โดยไม่มี `imagePullSecrets` เลย (ยืนยันว่า provider ทำงาน) — ⏳ ยังต้องรอเช็คข้อ >12 ชม. ด้วย pod ใหม่ที่ `imagePullPolicy: Always` (image ทดสอบ `credtest-1` อยู่ใน repo backend)
-- [ ] **cert-manager + ClusterIssuer** ของ Let's Encrypt แบบ HTTP-01
+- [x] **cert-manager + ClusterIssuer** ของ Let's Encrypt แบบ HTTP-01
   - คำใบ้: ทดสอบกับ staging issuer ก่อน เพื่อไม่ให้ชน rate limit
   - เช็ค: เบราว์เซอร์ขึ้นแม่กุญแจ และ cert ออกโดย Let's Encrypt
+  - ✅ ทดสอบจริงด้วย nginx + Ingress ชั่วคราวที่ `app.52-74-96-78.sslip.io`: staging ออก cert ได้ใน ~30 วิ, สลับเป็น prod ได้ cert issuer `Let's Encrypt CN=YR1` และ `curl` ไม่ใช้ `-k` ได้ 200 (`ssl_verify=0`)
+  - หมายเหตุ: ใช้ sslip.io ระหว่างที่ยังไม่มีโดเมนจริง, ไม่ใส่ email ใน ClusterIssuer (cert-manager ต่ออายุเองอยู่แล้ว)
 - [ ] **Argo CD** ติดตั้งและเข้า UI ได้
 - [ ] **Jenkins** ติดตั้งด้วย Helm ตั้ง resource limit ของ controller, PVC 10 GB และติดตั้ง plugin ที่ต้องใช้ (Kubernetes, GitHub Branch Source, Credentials Binding, SCM Skip, Workspace Cleanup)
 
