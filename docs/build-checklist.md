@@ -58,7 +58,8 @@ flowchart LR
   - เช็ค: เบราว์เซอร์ขึ้นแม่กุญแจ และ cert ออกโดย Let's Encrypt
   - ✅ ทดสอบจริงด้วย nginx + Ingress ชั่วคราวที่ `app.52-74-96-78.sslip.io`: staging ออก cert ได้ใน ~30 วิ, สลับเป็น prod ได้ cert issuer `Let's Encrypt CN=YR1` และ `curl` ไม่ใช้ `-k` ได้ 200 (`ssl_verify=0`)
   - หมายเหตุ: ใช้ sslip.io ระหว่างที่ยังไม่มีโดเมนจริง, ไม่ใส่ email ใน ClusterIssuer (cert-manager ต่ออายุเองอยู่แล้ว)
-- [ ] **Argo CD** ติดตั้งและเข้า UI ได้
+- [x] **Argo CD** ติดตั้งและเข้า UI ได้
+  - ✅ ทดสอบจริง: v3.5.3 ทุก pod (7 ตัว) Running, เข้า UI ผ่าน `kubectl port-forward` ได้ 200 และ login admin ผ่านทาง API สำเร็จ (ยังไม่เปิด Ingress สาธารณะ ตั้งใจไว้ก่อน)
 - [ ] **Jenkins** ติดตั้งด้วย Helm ตั้ง resource limit ของ controller, PVC 10 GB และติดตั้ง plugin ที่ต้องใช้ (Kubernetes, GitHub Branch Source, Credentials Binding, SCM Skip, Workspace Cleanup)
 
 ## Phase 3 · Kubernetes manifests (Kustomize)

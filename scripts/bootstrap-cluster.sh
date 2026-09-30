@@ -4,6 +4,7 @@
 set -euo pipefail
 
 CERT_MANAGER_VERSION="v1.21.2"
+ARGOCD_VERSION="v3.5.3"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 install_cert_manager() {
@@ -17,4 +18,17 @@ install_cert_manager() {
   kubectl apply -f "${ROOT}/k8s/platform/cluster-issuer.yaml"
 }
 
+install_argocd() {
+  kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+  # --server-side: the ApplicationSet CRD is larger than the 256 KB
+  # annotation limit that client-side apply uses to track changes, so a
+  # plain `kubectl apply` fails on it.
+  kubectl apply -n argocd --server-side --force-conflicts \
+    -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/install.yaml"
+
+  kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
+}
+
 install_cert_manager
+install_argocd
