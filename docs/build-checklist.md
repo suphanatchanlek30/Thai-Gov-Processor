@@ -60,7 +60,8 @@ flowchart LR
   - หมายเหตุ: ใช้ sslip.io ระหว่างที่ยังไม่มีโดเมนจริง, ไม่ใส่ email ใน ClusterIssuer (cert-manager ต่ออายุเองอยู่แล้ว)
 - [x] **Argo CD** ติดตั้งและเข้า UI ได้
   - ✅ ทดสอบจริง: v3.5.3 ทุก pod (7 ตัว) Running, เข้า UI ผ่าน `kubectl port-forward` ได้ 200 และ login admin ผ่านทาง API สำเร็จ (ยังไม่เปิด Ingress สาธารณะ ตั้งใจไว้ก่อน)
-- [ ] **Jenkins** ติดตั้งด้วย Helm ตั้ง resource limit ของ controller, PVC 10 GB และติดตั้ง plugin ที่ต้องใช้ (Kubernetes, GitHub Branch Source, Credentials Binding, SCM Skip, Workspace Cleanup)
+- [x] **Jenkins** ติดตั้งด้วย Helm ตั้ง resource limit ของ controller, PVC 10 GB และติดตั้ง plugin ที่ต้องใช้ (Kubernetes, GitHub Branch Source, Credentials Binding, SCM Skip, Workspace Cleanup)
+  - ✅ ทดสอบจริง: chart 5.9.64 (Jenkins 2.568.3), controller limit 1 CPU / 2 GiB, PVC 10 GiB (local-path) Bound, plugin ครบ 5 ตัว active (pin เวอร์ชันแล้ว) ไม่มี plugin ล้มเหลว, `numExecutors: 0` (build รันใน agent pod เท่านั้น), login admin ผ่านทาง API — เข้าผ่าน `kubectl port-forward` ก่อน ยังไม่เปิด Ingress จนกว่าจะตั้ง webhook
 
 ## Phase 3 · Kubernetes manifests (Kustomize)
 

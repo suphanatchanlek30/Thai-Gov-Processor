@@ -1,0 +1,42 @@
+# Values for the official jenkins/jenkins Helm chart (pinned in
+# scripts/bootstrap-cluster.sh). Only what differs from the chart defaults.
+controller:
+  # Builds run in throwaway agent pods (Kubernetes plugin), never on the
+  # controller itself: a build that eats memory or runs untrusted code must
+  # not be able to take down the thing that schedules builds.
+  numExecutors: 0
+
+  # The JVM heap defaults to a fraction of container memory that is too
+  # small once the limit is set this low; give it most of the limit but
+  # leave headroom for metaspace and native memory or the kernel OOM-kills
+  # the pod.
+  javaOpts: "-XX:MaxRAMPercentage=65.0"
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+  # Pinned so a controller restart cannot silently pull in newer plugin
+  # versions (the chart's own comment warns about exactly this). Jenkins
+  # still resolves plugin *dependencies* to the latest compatible version.
+  installPlugins:
+    - kubernetes:4557.ve746270f672f
+    - workflow-aggregator:608.v67378e9d3db_1
+    - git:5.10.1
+    - configuration-as-code:2130.v3ef02f16a_34b_
+    - github-branch-source:1983.vfa_27ed961853
+    - credentials-binding:728.v902a_273b_8947
+    - scmskip:84.v50575d32b_23f
+    - ws-cleanup:0.49
+
+  # Reached with `kubectl port-forward` for now. A public Ingress is added
+  # later, when GitHub needs to reach /github-webhook/.
+  serviceType: ClusterIP
+
+persistence:
+  enabled: true
+  size: 10Gi
