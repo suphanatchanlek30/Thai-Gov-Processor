@@ -53,6 +53,9 @@ resource "aws_instance" "app" {
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
     elastic_ip  = aws_eip.app.public_ip
     k3s_version = var.k3s_version
+
+    ecr_provider_url    = local.ecr_provider_url
+    ecr_provider_sha256 = var.ecr_provider_sha256
   })
 
   # user_data only runs on an instance's first boot. Without this, editing

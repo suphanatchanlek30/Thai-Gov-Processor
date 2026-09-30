@@ -22,6 +22,23 @@ variable "k3s_version" {
   default = "v1.36.4+k3s1"
 }
 
+variable "ecr_provider_version" {
+  type    = string
+  default = "v1.37.0"
+}
+
+# Pinned checksum so a tampered or replaced binary fails the boot script
+# instead of running as root-adjacent code on the node. Update together
+# with ecr_provider_version (the .sha256 file sits next to the binary).
+variable "ecr_provider_sha256" {
+  type    = string
+  default = "842e0fd8159f5ed8df2f38e6521e1e4f0a1ee80cf1e1ac119bbf20bf9c20681c"
+}
+
+locals {
+  ecr_provider_url = "https://storage.googleapis.com/k8s-artifacts-prod/binaries/cloud-provider-aws/${var.ecr_provider_version}/linux/amd64/ecr-credential-provider-linux-amd64"
+}
+
 variable "instance_type" {
   type    = string
   default = "t3a.large"

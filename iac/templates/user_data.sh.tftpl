@@ -16,6 +16,31 @@ retry() {
   done
 }
 
+# ECR auth tokens expire after 12h, so a static image-pull secret would
+# start failing with ImagePullBackOff overnight. Instead kubelet runs this
+# binary on every pull of an ECR image and gets a fresh token using the
+# instance's IAM role. K3s looks for both paths below by default, but only
+# enables the feature if they exist when K3s starts - so this must run
+# before the installer.
+CRED_DIR=/var/lib/rancher/credentialprovider
+mkdir -p "$CRED_DIR/bin"
+retry curl -sfL "${ecr_provider_url}" -o "$CRED_DIR/bin/ecr-credential-provider"
+echo "${ecr_provider_sha256}  $CRED_DIR/bin/ecr-credential-provider" | sha256sum -c -
+chmod 755 "$CRED_DIR/bin/ecr-credential-provider"
+
+cat > "$CRED_DIR/config.yaml" <<'EOF'
+apiVersion: kubelet.config.k8s.io/v1
+kind: CredentialProviderConfig
+providers:
+  - name: ecr-credential-provider
+    matchImages:
+      - "*.dkr.ecr.*.amazonaws.com"
+    defaultCacheDuration: "12h"
+    apiVersion: credentialprovider.kubelet.k8s.io/v1
+    args:
+      - get-credentials
+EOF
+
 retry curl -sfL https://get.k3s.io -o /tmp/k3s-install.sh
 
 # --tls-san adds the Elastic IP to the API server's certificate. Without it
