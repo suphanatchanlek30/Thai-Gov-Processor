@@ -51,8 +51,14 @@ resource "aws_instance" "app" {
   }
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tftpl", {
-    elastic_ip = aws_eip.app.public_ip
+    elastic_ip  = aws_eip.app.public_ip
+    k3s_version = var.k3s_version
   })
+
+  # user_data only runs on an instance's first boot. Without this, editing
+  # the script updates the stored value but the running instance never
+  # re-executes it - so the change would silently do nothing.
+  user_data_replace_on_change = true
 
   tags = {
     Name = "${var.project_name}-app"

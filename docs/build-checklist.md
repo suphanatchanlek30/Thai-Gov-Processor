@@ -46,8 +46,9 @@ flowchart LR
 
 ## Phase 2 · Cluster platform
 
-- [ ] **K3s** ติดตั้งผ่าน user_data ใส่ Elastic IP ไว้ใน TLS SAN
-  - เช็ค: ใช้ `kubectl` จากเครื่องตัวเองผ่าน port 6443 ได้ และจาก IP อื่นเข้าไม่ได้
+- [x] **K3s** ติดตั้งผ่าน user_data ใส่ Elastic IP ไว้ใน TLS SAN
+  - เช็ค: ใช้ `kubectl` จากเครื่องตัวเองผ่าน port 6443 ได้ และจาก IP อื่นเข้าไม่ได้ — ✅ ทดสอบจริง: `kubectl get nodes` จากเครื่องตัวเองได้ `Ready` (v1.36.4+k3s1) โดย TLS ผ่านไม่ต้อง `--insecure`, ส่วน hotspot มือถือ `curl` ไป 6443 ได้ timeout
+  - หมายเหตุ: `t3.micro` (RAM 1 GB) ใช้ไป ~795 MB แค่ K3s อย่างเดียว ต้องเพิ่มขนาดเครื่องก่อนติดตั้ง cert-manager/Argo CD/Jenkins
 - [ ] **ecr-credential-provider**
   - คำใบ้: K3s หา binary และ config ของ credential provider ใน `/var/lib/rancher/credentialprovider/` เป็นค่าเริ่มต้น
   - เช็ค: pod ยังดึง image จาก ECR ได้หลังผ่านไปเกิน 12 ชม.

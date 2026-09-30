@@ -15,6 +15,13 @@ variable "admin_cidr" {
   type = string
 }
 
+# Pinned so a rebuild months later gets the same cluster version instead of
+# whatever "latest" is that day. Upgrade by bumping this and re-applying.
+variable "k3s_version" {
+  type    = string
+  default = "v1.36.4+k3s1"
+}
+
 variable "instance_type" {
   type    = string
   default = "t3a.large"
