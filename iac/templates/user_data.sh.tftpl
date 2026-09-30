@@ -24,5 +24,9 @@ retry curl -sfL https://get.k3s.io -o /tmp/k3s-install.sh
 # instance's private IP and localhost.
 retry env INSTALL_K3S_VERSION="${k3s_version}" \
   sh /tmp/k3s-install.sh server \
-    --tls-san "${elastic_ip}" \
-    --node-external-ip "${elastic_ip}"
+    --tls-san "${elastic_ip}"
+
+# Deliberately no --node-external-ip: it makes K3s advertise the public
+# EIP as the API endpoint behind the in-cluster `kubernetes` Service, so
+# every pod (coredns, cert-manager...) tries to reach the API via the
+# public IP, which the security group blocks for anything but the admin.
