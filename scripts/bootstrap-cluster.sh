@@ -5,6 +5,7 @@ set -euo pipefail
 
 CERT_MANAGER_VERSION="v1.21.2"
 ARGOCD_VERSION="v3.5.3"
+JENKINS_CHART_VERSION="5.9.64"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 install_cert_manager() {
@@ -30,5 +31,17 @@ install_argocd() {
   kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
 }
 
+install_jenkins() {
+  helm repo add jenkins https://charts.jenkins.io --force-update >/dev/null
+  # --wait blocks until the controller passes its readiness probe, which
+  # only happens after every plugin has been downloaded and loaded.
+  helm upgrade --install jenkins jenkins/jenkins \
+    --version "${JENKINS_CHART_VERSION}" \
+    --namespace jenkins --create-namespace \
+    --values "${ROOT}/k8s/platform/jenkins-values.yaml" \
+    --wait --timeout 15m
+}
+
 install_cert_manager
 install_argocd
+install_jenkins
