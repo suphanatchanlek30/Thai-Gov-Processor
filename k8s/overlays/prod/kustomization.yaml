@@ -6,6 +6,7 @@ namespace: thai-gov
 resources:
   - ../../base
   - namespace.yaml
+  - ingress.yaml
 
 # Jenkins rewrites newTag on every main build (kustomize edit set image).
 # The tag below is a placeholder: ECR tags are IMMUTABLE and no app image has
