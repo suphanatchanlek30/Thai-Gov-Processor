@@ -1,0 +1,111 @@
+# Pod spec for Jenkins agents (Kubernetes plugin). One container per tool so
+# each stage runs with exactly the binaries it needs, and every image is
+# pinned: a floating tag would let a CI run change without any commit.
+#
+# Containers just idle (`sleep infinity`); Jenkins `sh` steps exec into them.
+# Requests are tiny because the node is shared with Jenkins, Argo CD and the
+# app and only one stage runs at a time; limits cap a runaway step instead.
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    # Pinned instead of letting the plugin inject its default agent image.
+    - name: jnlp
+      image: jenkins/inbound-agent:3391.va_37fa_a_305d6d-3-jdk21
+      resources:
+        requests: {cpu: 50m, memory: 128Mi}
+        limits: {cpu: 500m, memory: 512Mi}
+
+    # git, yq, kustomize, jq, curl: manifest edits, git push, Discord webhook.
+    - name: tools
+      image: alpine/k8s:1.36.5
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+        limits: {cpu: 500m, memory: 512Mi}
+
+    # Same Go version as backend/Dockerfile. bimg is cgo over libvips, so
+    # vet/test need libvips-dev installed by the pipeline before they run.
+    - name: golang
+      image: golang:1.24.13-bookworm
+      command: [sleep]
+      args: [infinity]
+      env:
+        - {name: GOCACHE, value: /tmp/go-build}
+        - {name: GOPATH, value: /tmp/go}
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: "2", memory: 2Gi}
+
+    # Same major as frontend/Dockerfile.
+    - name: node
+      image: node:20.20.2-bookworm-slim
+      command: [sleep]
+      args: [infinity]
+      env:
+        - {name: npm_config_cache, value: /tmp/npm}
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: "2", memory: 2Gi}
+
+    # Rootless BuildKit: the build never needs a privileged pod or a Docker
+    # socket. It does need seccomp and AppArmor off so the user namespace and
+    # mounts it sets up for itself are allowed; the no-process-sandbox flag is
+    # because pods can't remount /proc the way rootlesskit expects.
+    - name: buildkit
+      image: moby/buildkit:v0.33.1-rootless
+      command: [sleep]
+      args: [infinity]
+      env:
+        - {name: BUILDKITD_FLAGS, value: --oci-worker-no-process-sandbox}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: {type: Unconfined}
+        appArmorProfile: {type: Unconfined}
+      volumeMounts:
+        # overlayfs can't stack on the container's own overlay root.
+        - {name: buildkit-state, mountPath: /home/user/.local/share/buildkit}
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {cpu: "2", memory: 3Gi}
+
+    - name: trivy
+      image: aquasec/trivy:0.74.0
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 50m, memory: 128Mi}
+        limits: {cpu: "1", memory: 1536Mi}
+
+    # Read-only plan; credentials are injected per stage, not baked in here.
+    - name: terraform
+      image: hashicorp/terraform:1.16.4
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 50m, memory: 128Mi}
+        limits: {cpu: "1", memory: 1Gi}
+
+    # Only used to fetch an ECR login token via the node's IAM role.
+    - name: aws-cli
+      image: amazon/aws-cli:2.37.7
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
+        limits: {cpu: 500m, memory: 512Mi}
+
+    # The :debug variant of crane is the one with a shell and sleep.
+    - name: crane
+      image: gcr.io/go-containerregistry/crane/debug:v0.22.1
+      command: [sleep]
+      args: [infinity]
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
+        limits: {cpu: 500m, memory: 512Mi}
+
+  volumes:
+    - name: buildkit-state
+      emptyDir: {}
