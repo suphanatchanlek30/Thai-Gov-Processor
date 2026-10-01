@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-test
+  annotations:
+    # Argo CD runs this after every sync once the app is Healthy; a failed
+    # Job marks the sync as failed. BeforeHookCreation clears the previous
+    # run's Job so the fixed name can be reused.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: smoke-test
+          image: curlimages/curl:8.11.1
+          command:
+            - sh
+            - -ec
+            - |
+              curl -sS --fail --retry 5 --retry-delay 2 --retry-connrefused http://backend/healthz
+              echo
+              curl -sS --fail --retry 5 --retry-delay 2 --retry-connrefused http://backend/api/v1/selftest
+              echo
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
