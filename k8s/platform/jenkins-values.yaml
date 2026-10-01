@@ -32,10 +32,113 @@ controller:
     - credentials-binding:728.v902a_273b_8947
     - scmskip:84.v50575d32b_23f
     - ws-cleanup:0.49
+    - job-dsl:3732.v9a_c49a_61a_313
+    - github:1.47.0
 
-  # Reached with `kubectl port-forward` for now. A public Ingress is added
-  # later, when GitHub needs to reach /github-webhook/.
+  # The UI stays on ClusterIP (use `kubectl port-forward`); only the webhook
+  # path is exposed publicly through the Ingress below.
   serviceType: ClusterIP
+
+  # Only /github-webhook/ is routed, so the rest of Jenkins is not reachable
+  # from the internet. letsencrypt-prod, not staging: GitHub refuses to
+  # deliver webhooks to a host whose certificate it cannot verify.
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hostName: jenkins.52-74-96-78.sslip.io
+    path: /github-webhook/
+    pathType: Prefix
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls:
+      - secretName: jenkins-tls
+        hosts:
+          - jenkins.52-74-96-78.sslip.io
+
+  # Keys of this Secret are readable in JCasC as ${key}. Created by
+  # scripts/create-ci-secrets.sh before the chart is installed. The `:-unset`
+  # defaults keep Jenkins booting when an optional key is missing.
+  existingSecret: jenkins-ci-secrets
+
+  # Everything Jenkins needs is declared here instead of clicked together in
+  # the UI: the PVC is lost whenever the cluster is rebuilt.
+  JCasC:
+    configScripts:
+      credentials: |
+        credentials:
+          system:
+            domainCredentials:
+              - credentials:
+                  - usernamePassword:
+                      scope: GLOBAL
+                      id: github-token
+                      username: suphanatchanlek30
+                      password: ${github-token:-unset}
+                  - string:
+                      scope: GLOBAL
+                      id: github-webhook-secret
+                      secret: ${github-webhook-secret:-unset}
+                  - string:
+                      scope: GLOBAL
+                      id: discord-webhook
+                      secret: ${discord-webhook:-unset}
+                  - usernamePassword:
+                      scope: GLOBAL
+                      id: aws-tf-readonly
+                      username: ${aws-tf-readonly-key-id:-unset}
+                      password: ${aws-tf-readonly-secret:-unset}
+                  - string:
+                      scope: GLOBAL
+                      id: tf-admin-cidr
+                      secret: ${tf-admin-cidr:-unset}
+
+      # GitHub signs each webhook with this secret (HMAC); Jenkins drops
+      # deliveries whose signature does not match.
+      github-webhook: |
+        unclassified:
+          gitHubPluginConfig:
+            hookSecretConfigs:
+              - credentialsId: github-webhook-secret
+
+      # Webhooks are the trigger; the 5 minute scan only catches a delivery
+      # that was lost. `main` and PRs only: a pushed feature branch without a
+      # PR builds nothing.
+      jobs: |
+        jobs:
+          - script: |
+              multibranchPipelineJob('thai-gov-processor') {
+                branchSources {
+                  branchSource {
+                    source {
+                      github {
+                        id('thai-gov-processor')
+                        repoOwner('suphanatchanlek30')
+                        repository('Thai-Gov-Processor')
+                        repositoryUrl('https://github.com/suphanatchanlek30/Thai-Gov-Processor')
+                        configuredByUrl(true)
+                        credentialsId('github-token')
+                        traits {
+                          gitHubBranchDiscovery { strategyId(1) }
+                          gitHubPullRequestDiscovery { strategyId(1) }
+                          headWildcardFilter {
+                            includes('main PR-*')
+                            excludes('')
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                factory {
+                  workflowBranchProjectFactory { scriptPath('Jenkinsfile') }
+                }
+                orphanedItemStrategy {
+                  discardOldItems { numToKeep(10) }
+                }
+                triggers {
+                  periodicFolderTrigger { interval('5m') }
+                }
+              }
 
 persistence:
   enabled: true
