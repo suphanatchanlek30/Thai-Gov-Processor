@@ -34,6 +34,9 @@ spec:
       env:
         - {name: GOCACHE, value: /tmp/go-build}
         - {name: GOPATH, value: /tmp/go}
+        # The workspace is owned by the agent user, not root, so git refuses to
+        # report VCS status and golangci-lint's typecheck fails without this.
+        - {name: GOFLAGS, value: -buildvcs=false}
       resources:
         requests: {cpu: 100m, memory: 128Mi}
         limits: {cpu: "2", memory: 2Gi}
