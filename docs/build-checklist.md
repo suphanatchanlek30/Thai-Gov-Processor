@@ -49,10 +49,10 @@ flowchart LR
 - [x] **K3s** ติดตั้งผ่าน user_data ใส่ Elastic IP ไว้ใน TLS SAN
   - เช็ค: ใช้ `kubectl` จากเครื่องตัวเองผ่าน port 6443 ได้ และจาก IP อื่นเข้าไม่ได้ — ✅ ทดสอบจริง: `kubectl get nodes` จากเครื่องตัวเองได้ `Ready` (v1.36.4+k3s1) โดย TLS ผ่านไม่ต้อง `--insecure`, ส่วน hotspot มือถือ `curl` ไป 6443 ได้ timeout
   - หมายเหตุ: `t3.micro` (RAM 1 GB) ใช้ไป ~795 MB แค่ K3s อย่างเดียว ต้องเพิ่มขนาดเครื่องก่อนติดตั้ง cert-manager/Argo CD/Jenkins
-- [ ] **ecr-credential-provider**
+- [x] **ecr-credential-provider**
   - คำใบ้: K3s หา binary และ config ของ credential provider ใน `/var/lib/rancher/credentialprovider/` เป็นค่าเริ่มต้น
   - เช็ค: pod ยังดึง image จาก ECR ได้หลังผ่านไปเกิน 12 ชม.
-  - ผลทดสอบเบื้องต้น: pod ดึง image จาก ECR ได้โดยไม่มี `imagePullSecrets` เลย (ยืนยันว่า provider ทำงาน) — ⏳ ยังต้องรอเช็คข้อ >12 ชม. ด้วย pod ใหม่ที่ `imagePullPolicy: Always` (image ทดสอบ `credtest-1` อยู่ใน repo backend)
+  - ✅ ทดสอบจริง: ตอนที่ node อายุ ~13 ชม. (เกิน 12 ชม. ที่ token ECR หมดอายุ และ node ไม่เคยรีสตาร์ต) pod ใหม่ที่ `imagePullPolicy: Always` และไม่มี `imagePullSecrets` ดึง `credtest-1` ได้ `Successfully pulled` ใน 546ms
 - [x] **cert-manager + ClusterIssuer** ของ Let's Encrypt แบบ HTTP-01
   - คำใบ้: ทดสอบกับ staging issuer ก่อน เพื่อไม่ให้ชน rate limit
   - เช็ค: เบราว์เซอร์ขึ้นแม่กุญแจ และ cert ออกโดย Let's Encrypt
