@@ -1,7 +1,7 @@
 # bimg (image resize/compress) uses cgo bindings to libvips, so the build
 # stage needs the vips headers/pkg-config files; the runtime stage only
 # needs the shared libraries the compiled binary links against.
-FROM golang:1.22-bookworm AS build
+FROM golang:1.24.13-bookworm AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libvips-dev \
