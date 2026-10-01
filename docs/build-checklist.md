@@ -81,18 +81,21 @@ flowchart LR
 
 ## Phase 4 · Jenkins CI
 
-- [ ] **Agent pod spec** มี container แยกตามงาน: tools, golang, node, buildkit (rootless), trivy, terraform, aws-cli และ crane
+- [x] **Agent pod spec** มี container แยกตามงาน: tools, golang, node, buildkit (rootless), trivy, terraform, aws-cli และ crane
   - คำใบ้: BuildKit แบบ rootless ใน pod ต้องตั้ง seccomp และ AppArmor เป็น Unconfined
   - คำใบ้: pin เวอร์ชันของทุก image ห้ามใช้ `latest`
-- [ ] **Pipeline สำหรับ PR**: lint → test → build เป็นไฟล์ `.tar` → Trivy gate → terraform plan (เฉพาะเมื่อแก้ `iac/`)
-- [ ] **Pipeline สำหรับ main**: build → Trivy gate → push ไฟล์ `.tar` ตัวที่สแกนแล้วขึ้น ECR → แก้ tag ใน overlay → commit กลับ
+- [x] **Pipeline สำหรับ PR**: lint → test → build เป็นไฟล์ `.tar` → Trivy gate → terraform plan (เฉพาะเมื่อแก้ `iac/`)
+- [x] **Pipeline สำหรับ main**: build → Trivy gate → push ไฟล์ `.tar` ตัวที่สแกนแล้วขึ้น ECR → แก้ tag ใน overlay → commit กลับ
   - คำใบ้: ใช้เงื่อนไข `when` แยกขั้นที่รันเฉพาะ PR กับเฉพาะ main
   - คำใบ้: ขอ token ของ ECR ด้วย IAM role แล้วเขียน docker config เอง ไม่ต้องเก็บ access key
-- [ ] **กันการวนลูป**: commit ที่ Jenkins สร้างเองต้องไม่ trigger pipeline ซ้ำ
-- [ ] **แจ้งเตือน** Discord ทั้งตอนผ่านและตอนล้มเหลว
+- [x] **กันการวนลูป**: commit ที่ Jenkins สร้างเองต้องไม่ trigger pipeline ซ้ำ
+- [x] **แจ้งเตือน** Discord ทั้งตอนผ่านและตอนล้มเหลว
 - เช็คทั้ง phase:
-  - เปิด PR ที่ใส่ dependency ที่มีช่องโหว่ CRITICAL → PR ต้องขึ้น ✘ และกด Merge ไม่ได้
-  - merge PR ปกติ → มี image tag ใหม่ใน ECR และมี commit แก้ tag ใน Git
+  - เปิด PR ที่ใส่ dependency ที่มีช่องโหว่ CRITICAL → PR ต้องขึ้น ✘ และกด Merge ไม่ได้ — ✅ ทดสอบจริงด้วย minimist 1.2.5 (CVE-2021-44906): Trivy gate ล้ม, check `continuous-integration/jenkins/pr-merge` เป็น fail และ GitHub แสดง merge state BLOCKED
+  - merge PR ปกติ → มี image tag ใหม่ใน ECR และมี commit แก้ tag ใน Git — ✅ merge #29 ได้ image `23b2bfe8` ทั้ง backend และ frontend ใน ECR, Jenkins push commit `deploy 23b2bfe8 [skip ci]` เข้า main (ผ่าน ruleset bypass), Discord แจ้งผ่าน และบิลด์ที่เกิดจาก commit นั้นถูกข้ามโดยไม่วนลูป
+  - ✅ PR ที่แก้ `iac/` รัน terraform plan ด้วย `tf-readonly` ได้ (PR ที่ไม่แตะ `iac/` ข้ามขั้นนี้)
+  - หมายเหตุ: Trivy gate เจอ CRITICAL จริงในโค้ดเดิม (Next 14.2.35, Go 1.22 stdlib, npm/tar และ libgnutls ใน base image) แก้แล้วใน #23 และ #24
+  - หมายเหตุ: บิลด์แรกล้มเพราะ `golangci-lint` เจอ git dubious ownership ใน container (เทสในเครื่องไม่เจอ) แก้ด้วย `GOFLAGS=-buildvcs=false` ใน #29
 
 ## Phase 5 · Argo CD
 
