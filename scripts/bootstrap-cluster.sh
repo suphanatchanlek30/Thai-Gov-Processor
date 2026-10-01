@@ -32,6 +32,13 @@ install_argocd() {
 }
 
 install_jenkins() {
+  # The controller mounts this Secret on startup, so it must exist before
+  # the chart is installed or the pod never becomes ready.
+  if ! kubectl -n jenkins get secret jenkins-ci-secrets >/dev/null 2>&1; then
+    echo "Secret jenkins-ci-secrets is missing: run scripts/create-ci-secrets.sh first" >&2
+    exit 1
+  fi
+
   helm repo add jenkins https://charts.jenkins.io --force-update >/dev/null
   # --wait blocks until the controller passes its readiness probe, which
   # only happens after every plugin has been downloaded and loaded.
