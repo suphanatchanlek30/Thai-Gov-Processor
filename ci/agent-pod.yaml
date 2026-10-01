@@ -28,7 +28,7 @@ spec:
     # Same Go version as backend/Dockerfile. bimg is cgo over libvips, so
     # vet/test need libvips-dev installed by the pipeline before they run.
     - name: golang
-      image: golang:1.22.12-bookworm
+      image: golang:1.24.13-bookworm
       command: [sleep]
       args: [infinity]
       env:
