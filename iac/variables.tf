@@ -1,3 +1,4 @@
+# Test: touching iac/ should trigger the terraform plan stage.
 variable "aws_region" {
   type    = string
   default = "ap-southeast-1"
