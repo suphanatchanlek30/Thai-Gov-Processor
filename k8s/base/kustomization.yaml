@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - backend-deployment.yaml
   - frontend-deployment.yaml
+  - services.yaml
+  - backend-hpa.yaml
+  - smoke-test-job.yaml
 
 # Only environment-agnostic settings live here. S3_BUCKET and
 # CORS_ALLOWED_ORIGINS differ per environment, so the prod overlay adds them.

@@ -65,17 +65,19 @@ flowchart LR
 
 ## Phase 3 · Kubernetes manifests (Kustomize)
 
-- [ ] **Deployment ของ backend และ frontend**
+- [x] **Deployment ของ backend และ frontend**
   - readinessProbe และ livenessProbe ที่ `/healthz`
   - rolling update แบบ `maxSurge: 1` / `maxUnavailable: 0`
   - รันแบบ non-root, root filesystem เป็น read-only (mount `/tmp` เป็น emptyDir), drop capabilities ทั้งหมด
   - กำหนด resource requests และ limits
-- [ ] **Service** แบบ ClusterIP ของทั้งสองตัว
-- [ ] **HPA** ของ backend 2–4 pods ที่ CPU 70%
-- [ ] **Ingress** อยู่ namespace เดียวกับ service, `/` ไป frontend, `/api` ไป backend, มี TLS จาก cert-manager
-- [ ] **Smoke test Job** เป็น PostSync hook ของ Argo CD เรียก `/healthz` และ `/api/v1/selftest`
-- [ ] **Overlay `prod`** กำหนด namespace และช่อง `images` (`newName` / `newTag`) ให้ Jenkins มาแก้ tag ที่นี่
+- [x] **Service** แบบ ClusterIP ของทั้งสองตัว
+- [x] **HPA** ของ backend 2–4 pods ที่ CPU 70%
+- [x] **Ingress** อยู่ namespace เดียวกับ service, `/` ไป frontend, `/api` ไป backend, มี TLS จาก cert-manager
+- [x] **Smoke test Job** เป็น PostSync hook ของ Argo CD เรียก `/healthz` และ `/api/v1/selftest`
+- [x] **Overlay `prod`** กำหนด namespace และช่อง `images` (`newName` / `newTag`) ให้ Jenkins มาแก้ tag ที่นี่
 - เช็คทั้ง phase: ลบ pod backend ทิ้ง 1 ตัวระหว่างยิง request ต่อเนื่อง ต้องไม่มี request ที่ error
+  - ✅ ทดสอบจริงด้วย image ที่ build/push มือ (`manual-e536a69`): ยิง `/api/v1/presets` ผ่าน Ingress 300 ครั้ง ลบ backend 1 ตัวกลางทาง ได้ 200 ครบ 300/300, smoke test Job ผ่านทั้ง `/healthz` และ `/api/v1/selftest`, cert-manager ออก cert (staging) ได้ และ `/` กับ `/api` ตอบ 200
+  - หมายเหตุ: รอบแรกที่ลบ pod พลาด (คำสั่งลบเกิน) เจอ 502 หนึ่งครั้งจาก 300 ยังไม่ได้พิสูจน์ว่าเป็น race ตอน pod กำลังปิด จึงควรพิจารณาเพิ่ม `preStop` sleep ถ้าเจออีก
 
 ## Phase 4 · Jenkins CI
 
