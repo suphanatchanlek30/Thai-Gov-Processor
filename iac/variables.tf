@@ -41,5 +41,5 @@ locals {
 
 variable "instance_type" {
   type    = string
-  default = "t3a.large"
+  default = "m7i-flex.large"
 }
