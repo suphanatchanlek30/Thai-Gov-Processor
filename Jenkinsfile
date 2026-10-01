@@ -1,4 +1,24 @@
-// Pipeline for the multibranch job: PR builds verify, nothing is pushed.
+// Pipeline for the multibranch job. Every build lints, tests, builds and
+// scans; only main continues to push the scanned images and bump the tag.
+void notifyDiscord(String title, int color) {
+  try {
+    container('tools') {
+      withCredentials([string(credentialsId: 'discord-webhook', variable: 'DISCORD_URL')]) {
+        withEnv(["MSG_TITLE=${title}", "MSG_COLOR=${color}"]) {
+          sh '''
+            jq -n --arg t "$MSG_TITLE" --arg d "$BUILD_URL" --argjson c "$MSG_COLOR" \
+              '{embeds: [{title: $t, description: $d, color: $c}]}' \
+              | curl -sS -m 10 -H 'Content-Type: application/json' -d @- "$DISCORD_URL" >/dev/null
+          '''
+        }
+      }
+    }
+  } catch (err) {
+    // A broken webhook must not turn a good build red.
+    echo "Discord notification failed: ${err}"
+  }
+}
+
 pipeline {
   agent {
     kubernetes {
@@ -13,6 +33,9 @@ pipeline {
   }
 
   environment {
+    AWS_REGION = 'ap-southeast-1'
+    ECR_REGISTRY = '334177992720.dkr.ecr.ap-southeast-1.amazonaws.com'
+
     // Baked into the frontend bundle at build time (see frontend/Dockerfile).
     // Must be the real public URL: an empty value falls back to localhost.
     APP_URL = 'https://app.52-74-96-78.sslip.io'
@@ -23,6 +46,14 @@ pipeline {
   }
 
   stages {
+    // The tag-bump commit pushed by this pipeline lands on main and would
+    // trigger another build; this deletes that build instead of looping.
+    stage('Skip bot commits') {
+      steps {
+        scmSkip(deleteBuild: true, skipPattern: '.*\\[skip ci\\].*')
+      }
+    }
+
     stage('Prepare') {
       steps {
         sh 'git config --global --add safe.directory "*"'
@@ -134,6 +165,82 @@ pipeline {
               terraform plan -input=false -lock=false
             '''
           }
+        }
+      }
+    }
+
+    stage('Push to ECR') {
+      when { branch 'main' }
+      steps {
+        // The node's IAM role supplies the credentials; crane reads the
+        // Docker-style config written here, so no access key is stored.
+        container('aws-cli') {
+          sh '''
+            set +x  # the token must not be echoed into the build log
+            mkdir -p .docker
+            token=$(aws ecr get-login-password --region "$AWS_REGION")
+            auth=$(printf 'AWS:%s' "$token" | base64 -w0)
+            printf '{"auths":{"%s":{"auth":"%s"}}}' "$ECR_REGISTRY" "$auth" > .docker/config.json
+          '''
+        }
+        container('crane') {
+          // Pushes the exact tar Trivy scanned. Tags are IMMUTABLE, so a
+          // re-run of the same commit keeps what is already there.
+          sh '''
+            export DOCKER_CONFIG="$PWD/.docker"
+            for name in backend frontend; do
+              ref="$ECR_REGISTRY/thai-gov-processor-$name:$IMAGE_TAG"
+              if crane digest "$ref" >/dev/null 2>&1; then
+                echo "$ref already exists, skipping push"
+              else
+                crane push "build/$name.tar" "$ref"
+              fi
+            done
+          '''
+        }
+      }
+    }
+
+    stage('Bump image tag') {
+      when { branch 'main' }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'github-token',
+                                          usernameVariable: 'GIT_USER',
+                                          passwordVariable: 'GIT_TOKEN')]) {
+          sh '''
+            export GIT_ASKPASS="$PWD/ci/git-askpass.sh" GIT_TERMINAL_PROMPT=0
+
+            # Another merge may have landed while this build ran.
+            git fetch origin main
+            git checkout -B main origin/main
+
+            overlay=k8s/overlays/prod/kustomization.yaml
+            sed -i "s/newTag: .*/newTag: $IMAGE_TAG/" "$overlay"
+            test "$(grep -c "newTag: $IMAGE_TAG" "$overlay")" = 2
+
+            git config user.name jenkins-ci
+            git config user.email jenkins-ci@users.noreply.github.com
+            git add "$overlay"
+            git commit -m "deploy $IMAGE_TAG [skip ci]"
+            git push origin main
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      script {
+        if (env.BRANCH_NAME == 'main') {
+          notifyDiscord("✅ ${env.JOB_NAME} #${env.BUILD_NUMBER}: ${env.IMAGE_TAG} pushed, tag bumped", 3066993)
+        }
+      }
+    }
+    failure {
+      script {
+        if (env.BRANCH_NAME == 'main') {
+          notifyDiscord("❌ ${env.JOB_NAME} #${env.BUILD_NUMBER} failed", 15158332)
         }
       }
     }
