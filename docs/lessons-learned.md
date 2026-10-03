@@ -37,10 +37,13 @@
 | 16 | `curl` ถาม Jenkins API แล้วได้คำตอบว่าง | `[ ]` ใน URL ถูกตีความเป็น pattern | `curl -g` | JSON parse error |
 | 17 | terminal ใหม่ `helm`/`kubectl` ขึ้น `x509: certificate signed by unknown authority` | ไม่ได้ตั้ง `KUBECONFIG` เลยไปคุยกับ `localhost:8080` ซึ่งคือ port-forward ของ Argo CD | `export KUBECONFIG=~/.kube/thai-gov-k3s.yaml` ทุก terminal | error อ้าง `https://localhost:8080` |
 | 18 | คำสั่งทดสอบ notification พิมพ์ URL ของ Discord webhook ลง log | `argocd admin notifications template notify` log request เต็มที่ระดับ debug | กรอง output ให้เหลือแค่รหัสสถานะ | เห็นใน output ของคำสั่ง |
+| 19 | `terraform destroy` ล้มตอนปิดโปรเจกต์ | ลบ ECR repo ไม่ได้ถ้ามี image (ไม่ได้ตั้ง `force_delete`), S3 bucket ไม่ว่าง, IAM user มี access key ที่สร้างด้วยมือ และ bucket ของ state มี versioning | `scripts/teardown.sh` เคลียร์สามอย่างก่อน แล้วลบ bucket state ทุก version ตอนท้าย | `terraform destroy` ขึ้น `RepositoryNotEmptyException` |
+| 20 | ลบ image ใน ECR ทีละ tag แล้วยัง `RepositoryNotEmpty` | ยังเหลือ image แบบไม่มี tag (untagged manifest) 2 ตัวต่อ repo ที่ลบตาม tag ไม่ถึง | `aws ecr delete-repository --force` ใน script | `aws ecr list-images` หลังลบ ยังเห็น `imageDigest` ที่ไม่มี `imageTag` |
 
 ## สิ่งที่จะทำต่างออกไป
 
 - เพิ่ม `merge-pdf` เข้า smoke test **ตั้งแต่ Phase 3** เช็คของ Phase 3 ยิงแค่ `/presets` จึงไม่เคยเจอบั๊กข้อ 6
 - ทดสอบทุกอย่างในสภาพ container จริง (`readOnlyRootFilesystem`, ไม่มี `$HOME` ที่เขียนได้) ไม่ใช่แค่ Docker Compose
 - ตัดสินใจเรื่อง flow ของ branch (build once, tag จาก staging overlay, ด่านต้นทาง) ก่อนเขียน Jenkinsfile ไม่ใช่ปรับทีหลัง
-- เก็บ screenshot ไปพร้อมกับแต่ละ phase ไม่ใช่ท้ายโปรเจกต์
+- เก็บ screenshot ไปพร้อมกับแต่ละ phase ไม่ใช่ท้ายโปรเจกต์ (ภาพฝั่ง AWS Console เก็บไม่ทันก่อนลบ)
+- ออกแบบ teardown ตั้งแต่แรก: `force_delete` ที่ ECR และ `force_destroy` ที่ S3 ของไฟล์ผลลัพธ์ จะทำให้ `terraform destroy` ผ่านในคำสั่งเดียว (ไม่ได้ใส่ไว้เพราะกลัวลบข้อมูลโดยไม่ตั้งใจ แต่ทำให้ปิดโปรเจกต์ยุ่งยาก)

@@ -11,12 +11,14 @@
 ![AWS](https://img.shields.io/badge/Cloud-AWS-FF9900?logo=amazonaws&logoColor=white)
 ![Trivy](https://img.shields.io/badge/Security-Trivy-1904DA?logo=aqua&logoColor=white)
 
-| Environment | URL | branch |
-| --- | --- | --- |
-| Production | https://app.52-74-96-78.sslip.io | `main` |
-| Staging | https://staging.52-74-96-78.sslip.io | `staging` |
+> **สถานะ: โปรเจกต์เสร็จสมบูรณ์ (Phase 0–6) และ infrastructure บน AWS ถูกลบทั้งหมดแล้วเมื่อ 3 ตุลาคม 2026 เพื่อหยุดค่าใช้จ่าย** จึงไม่มีเว็บให้เปิดแล้ว หลักฐานการทำงานอยู่ใน [Screenshots](#screenshots), [build-checklist](docs/build-checklist.md) (ผลทดสอบจริงทุกข้อ) และ [lessons-learned](docs/lessons-learned.md) สร้างใหม่ได้จากโค้ดใน repo นี้ ดู [สร้างใหม่หลังลบทั้งหมด](docs/getting-started.md#สร้างใหม่หลังลบทั้งหมด)
 
-> ลิงก์ขึ้นเฉพาะตอนที่ cluster รันอยู่ (ปิดเครื่องหลังเดโมเพื่อคุมค่าใช้จ่าย) ระบบเป็น production-like บน EC2 เครื่องเดียว ไม่ได้ออกแบบมาเพื่อ high availability ดูข้อจำกัดที่ [ข้อจำกัดและ Roadmap](#ข้อจำกัดและ-roadmap)
+| Environment | URL ตอนที่รันอยู่ | branch |
+| --- | --- | --- |
+| Production | `https://app.52-74-96-78.sslip.io` | `main` |
+| Staging | `https://staging.52-74-96-78.sslip.io` | `staging` |
+
+ระบบเป็น production-like บน EC2 เครื่องเดียว ไม่ได้ออกแบบมาเพื่อ high availability ดูข้อจำกัดที่ [ข้อจำกัดและ Roadmap](#ข้อจำกัดและ-roadmap)
 
 <p align="center">
   <img src="docs/screenshots/01-app-prod.png" alt="หน้าเว็บ production" width="760" />
@@ -37,7 +39,8 @@
 | 4 | Jenkins CI: lint, test, build, Trivy gate, push ECR | ✅ |
 | 5 | Argo CD: auto sync, self-heal, smoke test, Discord | ✅ |
 | 5+ | Flow สามชั้น `dev → staging → main`, build once promote | ✅ |
-| 6 | Drift detect ทุกคืน, AWS Budgets, เอกสาร/screenshot | ✅ โค้ดครบ (drift ทดสอบแจ้งเตือนแล้ว) |
+| 6 | Drift detect ทุกคืน, AWS Budgets, เอกสาร/screenshot | ✅ drift ทดสอบแจ้งเตือนแล้ว · Budgets เขียนเป็นโค้ดแต่ไม่ได้ apply ก่อนลบ |
+| ปิดโปรเจกต์ | ลบ AWS ทั้งหมด (EC2, Elastic IP, VPC, ECR, S3, IAM, state bucket) ตรวจแล้วว่าไม่เหลืออะไร | ✅ |
 
 รายละเอียดและผลทดสอบจริงของทุกข้อ: [docs/build-checklist.md](docs/build-checklist.md)
 

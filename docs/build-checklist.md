@@ -132,3 +132,10 @@ flowchart LR
 | `go test` fail ใน CI แต่ผ่านบนเครื่อง | container ใน CI ไม่มี libvips สำหรับ cgo |
 | Trivy เจอช่องโหว่แต่ pipeline ยังผ่าน | ตั้ง exit code เป็น 0 |
 | ไฟล์ใน S3 ยังอยู่เกิน 24 ชม. | lifecycle ปัดไปเที่ยงคืน UTC และลบแบบ async (เป็นพฤติกรรมปกติ) |
+
+## ปิดโปรเจกต์ · Teardown
+
+- [x] **ลบ AWS ทั้งหมด** ด้วย `scripts/teardown.sh` (EC2 + EBS, Elastic IP, VPC, security group, IAM role/user, ECR 2 repo, S3 ไฟล์ผลลัพธ์, bucket ของ state)
+  - ✅ ตรวจหลังลบ (3 ตุลาคม 2026): ไม่เหลือ EC2, Elastic IP, EBS, VPC, ECR, S3, IAM, instance profile, snapshot และ AMI ของโปรเจกต์ ค่าใช้จ่ายของโปรเจกต์หยุด (โปรเจกต์อื่นในบัญชีไม่ถูกแตะ)
+  - หมายเหตุ: `terraform destroy` เฉยๆ ล้มเพราะ ECR ไม่ว่าง และเมื่อลบ image ตาม tag ยังเหลือ untagged manifest ต้องใช้ `delete-repository --force` ดู [lessons-learned](lessons-learned.md) ข้อ 19–20
+  - สร้างใหม่ได้จากโค้ด ดู [getting-started.md](getting-started.md#สร้างใหม่หลังลบทั้งหมด) (Elastic IP ใหม่ต้องแก้ hostname ใน 5 ไฟล์)

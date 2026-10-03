@@ -67,6 +67,25 @@ Jenkins ใช้เวลา ~10–15 นาทีโหลด plugin ครั
 
 เปิด PR เล็กๆ เข้า `dev` → รอเช็คเขียว → merge (Jenkins `build`: push image, bump tag ของ staging) → PR `dev → staging` → merge (Argo sync staging) → PR `staging → main` → merge (Jenkins `promote`, Argo sync prod) ดู [cicd-pipeline.md](cicd-pipeline.md)
 
-## 8. ประหยัดค่าใช้จ่ายหลังเดโม
+## 8. หยุดค่าใช้จ่าย
 
-`terraform destroy -target=aws_instance.app` ทำลายเฉพาะเครื่อง เก็บ Elastic IP, ECR, S3 และ state ไว้ (สร้างเครื่องคืนจะได้ IP เดิม ไม่ต้องแก้ hostname) หรือ `terraform destroy` ทั้งชุดถ้าไม่ใช้อีก
+| ต้องการ | ทำอย่างไร | ผล |
+| --- | --- | --- |
+| พักไว้ก่อน เปิดใหม่ภายหลัง | `terraform destroy -target=aws_instance.app` | ลบเฉพาะเครื่อง (และ EBS) เก็บ Elastic IP, ECR, S3 และ state ไว้ (~$4/เดือน) สร้างเครื่องคืนได้ IP และ hostname เดิม |
+| จบโปรเจกต์ ลบทั้งหมด | `./scripts/teardown.sh` | ลบทุกอย่างบน AWS รวม bucket ของ state ค่าใช้จ่าย $0 |
+
+`terraform destroy` เฉยๆ **ล้ม** ถ้าไม่เคลียร์ก่อน: ECR repo ที่มี image, S3 bucket ที่มีไฟล์ และ IAM user ที่มี access key (สร้างด้วยมือ) `scripts/teardown.sh` ทำให้ครบตามลำดับ (ขอให้พิมพ์ `DELETE` ยืนยัน แล้ว `terraform destroy` ถามอีกรอบ) และปิดท้ายด้วยการตรวจว่าไม่เหลืออะไร ก่อนลบควรถ่าย screenshot ฝั่ง AWS ที่ต้องการเก็บ
+
+## สร้างใหม่หลังลบทั้งหมด
+
+โค้ดใน repo สร้างระบบกลับมาได้ แต่ของหลายอย่างผูกกับ IP เดิม (`52.74.96.78`) และของที่ถูกลบ ต้องทำเพิ่มจากขั้น 1–7:
+
+1. สร้าง **bucket ของ state ใหม่ด้วยมือ** (เปิด versioning) ชื่อต้องตรงกับที่ระบุใน `iac/versions.tf`
+2. `terraform apply` จะได้ **Elastic IP ใหม่** (ไม่ใช่ `52.74.96.78`) เปลี่ยนจุดละ `52-74-96-78` (ตัวอักษรคั่นด้วยขีด) เป็น IP ใหม่ในไฟล์ที่ผูกกับ hostname:
+   `k8s/overlays/prod/ingress.yaml`, `k8s/overlays/prod/kustomization.yaml` (CORS), `k8s/overlays/staging/ingress.yaml`, `k8s/overlays/staging/kustomization.yaml`, `k8s/platform/jenkins-values.yaml` (ชื่อโฮสต์ของ Jenkins) รวมถึง `README.md` และเอกสารที่อ้างถึง
+   ```bash
+   grep -rl "52-74-96-78" k8s README.md docs --include='*.md' --include='*.yaml' | xargs sed -i '' 's/52-74-96-78/<IP-คั่นด้วยขีด>/g'
+   ```
+3. **สร้าง secret ใหม่ทั้งหมด:** PAT ของ GitHub, Discord webhook, access key ของ `tf-readonly` (ถูกลบแล้ว) และ webhook secret (สคริปต์สร้างให้ใหม่ ต้อง PATCH webhook ใน GitHub ด้วย)
+4. **image ใน ECR หายหมด** tag ใน `overlays/staging` และ `overlays/prod` ชี้ไป image ที่ไม่มีแล้ว Argo CD จะขึ้น `ImagePullBackOff` จนกว่าจะ build ใหม่: merge PR เข้า `dev` ให้ Jenkins `build` push image ใหม่และ bump tag ของ staging แล้ว promote ต่อ (`dev → staging → main`) tag ของ prod จะถูก promote ตามไปเอง
+5. Webhook ของ GitHub, ruleset และ branch `dev`/`staging` อยู่ฝั่ง GitHub ยังใช้ได้ ตรวจว่า webhook ชี้ hostname ใหม่
