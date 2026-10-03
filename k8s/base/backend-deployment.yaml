@@ -3,7 +3,8 @@ kind: Deployment
 metadata:
   name: backend
 spec:
-  replicas: 2
+  # No replicas: the HPA owns the count. A value here would make Argo CD's
+  # self-heal reset the HPA's scale-out on every sync.
   strategy:
     type: RollingUpdate
     rollingUpdate:

@@ -31,6 +31,10 @@ install_argocd() {
   kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
 }
 
+install_argocd_app() {
+  kubectl apply -f "${ROOT}/k8s/platform/argocd-application.yaml"
+}
+
 install_jenkins() {
   # The controller mounts this Secret on startup, so it must exist before
   # the chart is installed or the pod never becomes ready.
@@ -51,4 +55,5 @@ install_jenkins() {
 
 install_cert_manager
 install_argocd
+install_argocd_app
 install_jenkins

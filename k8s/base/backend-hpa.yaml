@@ -7,8 +7,6 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: backend
-  # minReplicas matches the Deployment's replicas so Argo CD's self-heal
-  # doesn't fight the HPA over the replica count.
   minReplicas: 2
   maxReplicas: 4
   metrics:
