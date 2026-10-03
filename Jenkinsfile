@@ -118,24 +118,30 @@ pipeline {
           def source = env.CHANGE_BRANCH ?: ''
           def promotion = (target == 'staging' && source == 'dev') || (target == 'main' && source == 'staging')
 
-          // Anything that cannot be diffed counts as "not docs only".
-          def range = env.CHANGE_ID ? 'origin/$CHANGE_TARGET...HEAD' : 'HEAD^1 HEAD'
-          def docsOnly = sh(returnStdout: true, script: """
-            files=\$(git diff --name-only ${range} 2>/dev/null || true)
-            other=\$(printf '%s\\n' "\$files" | grep -vcE '^(docs/.*|[^/]*\\.md)\$' || true)
-            if [ -n "\$files" ] && [ "\$other" = 0 ]; then
-              echo true
-            else
-              echo false
-            fi
-          """).trim() == 'true'
+          // Only PRs can be judged docs-only. A queued branch build checks out the
+          // branch head when it starts, so after several merges in a row
+          // `HEAD^1 HEAD` shows only the last merge and could hide code from an
+          // earlier one. The PR diff covers the whole PR. Anything that cannot be
+          // diffed counts as "not docs only".
+          def docsOnly = false
+          if (env.CHANGE_ID) {
+            docsOnly = sh(returnStdout: true, script: '''
+              files=$(git diff --name-only origin/$CHANGE_TARGET...HEAD 2>/dev/null || true)
+              other=$(printf '%s\\n' "$files" | grep -vcE '^(docs/.*|[^/]*\\.md)$' || true)
+              if [ -n "$files" ] && [ "$other" = 0 ]; then
+                echo true
+              else
+                echo false
+              fi
+            ''').trim() == 'true'
+          }
 
           if (bot) {
             env.MODE = 'skip'
           } else if (env.CHANGE_ID) {
             env.MODE = promotion ? 'verify' : (docsOnly ? 'skip' : 'ci')
           } else if (env.BRANCH_NAME == 'dev') {
-            env.MODE = docsOnly ? 'skip' : 'build'
+            env.MODE = 'build'
           } else if (env.BRANCH_NAME == 'staging') {
             env.MODE = 'verify'
           } else if (env.BRANCH_NAME == 'main') {
@@ -302,6 +308,7 @@ pipeline {
           sh '''
             export DOCKER_CONFIG="$PWD/.docker"
             tags=$(sed -n 's/^ *newTag: //p' "$STAGING_OVERLAY" | sort -u)
+            [ -n "$tags" ] || { echo "no newTag in $STAGING_OVERLAY"; exit 1; }
             test "$(echo "$tags" | wc -l)" = 1 || { echo "staging overlay has different tags: $tags"; exit 1; }
             for name in backend frontend; do
               crane digest "$ECR_REGISTRY/thai-gov-processor-$name:$tags" >/dev/null \
