@@ -3,17 +3,13 @@ kind: Ingress
 metadata:
   name: app
   annotations:
-    # Staging first: certs are untrusted by browsers but can't hit Let's
-    # Encrypt's production rate limits. Switch to letsencrypt-prod once
-    # staging issues cleanly (this also needs a new secretName, or delete
-    # the old Secret, for cert-manager to re-issue).
-    cert-manager.io/cluster-issuer: letsencrypt-staging
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: traefik
   tls:
     - hosts:
         - app.52-74-96-78.sslip.io
-      secretName: app-tls
+      secretName: app-tls-prod
   rules:
     - host: app.52-74-96-78.sslip.io
       http:
