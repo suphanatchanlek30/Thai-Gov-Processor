@@ -15,7 +15,9 @@ flowchart LR
     demo["จบเดโม"] --> destroy["terraform destroy<br/>ประหยัดค่าใช้จ่าย"]
 ```
 
-Infrastructure สร้างใหม่ซ้ำได้จาก code ทั้งหมด และ `terraform destroy` ได้หลังเดโมเพื่อคุมค่าใช้จ่าย (ดู [cost.md](cost.md))
+Infrastructure สร้างใหม่ซ้ำได้จาก code ทั้งหมด และ `terraform destroy -target=aws_instance.app` ได้หลังเดโมโดยเก็บ Elastic IP, ECR และ state ไว้ (ดู [cost.md](cost.md))
+
+เรื่องที่ควรรู้: `terraform.tfvars` (gitignore) เก็บ `admin_cidr` กับอีเมล ถ้า IP ที่บ้านเปลี่ยนต้องแก้แล้ว `apply` ไม่งั้น `kubectl` เข้า 6443 ไม่ได้ ส่วน job drift ทุกคืนอ่าน `admin_cidr` เดียวกันจาก Jenkins credential `tf-admin-cidr` (สร้างโดย `scripts/create-ci-secrets.sh`) ถ้าค่าสองที่ไม่ตรงกัน drift check จะรายงาน security group เป็น drift ปลอม
 
 ## ทรัพยากรที่ Terraform สร้าง
 
@@ -25,10 +27,13 @@ Infrastructure สร้างใหม่ซ้ำได้จาก code ท�
 | `network.tf` | VPC, public subnet, Internet Gateway, route table |
 | `security_group.tf` | เปิด 80/443 ทุกที่, 6443 เฉพาะ `var.admin_cidr` |
 | `iam.tf` | IAM role และ instance profile แบบ least privilege + SSM |
-| `ec2.tf` | EC2 t3a.large, Elastic IP, IMDSv2, EBS เข้ารหัส, user_data ติดตั้ง K3s |
+| `ec2.tf` | EC2 `m7i-flex.large` (ค่าเริ่มต้นใน `variables.tf`), Elastic IP, IMDSv2 (hop limit 2), EBS เข้ารหัส, `user_data` ติดตั้ง K3s |
+| `templates/user_data.sh.tftpl` | สคริปต์บูต: K3s (ใส่ Elastic IP ใน TLS SAN), ecr-credential-provider (ตรวจ sha256) |
 | `ecr.tf` | ECR 2 repo, IMMUTABLE, scan on push, lifecycle เก็บ 10 image ล่าสุด |
 | `s3.tf` | bucket ไฟล์ผู้ใช้, block public access, SSE, lifecycle 1 วัน |
-| `outputs.tf` | public IP, ชื่อ bucket, ECR URL |
+| `ci_iam.tf` | user `tf-readonly` (อ่านอย่างเดียว) สำหรับ `terraform plan` ใน PR และ drift check |
+| `budget.tf` | AWS Budget รายเดือน $10: เตือนเมื่อจริงเกิน 80% และ forecast เกิน 100% (อีเมลมาจาก `terraform.tfvars`) |
+| `outputs.tf` | instance id, public IP, ชื่อ bucket, ECR URL |
 
 สิ่งที่แต่ละไฟล์ต้องมีอยู่ใน [build-checklist.md — Phase 1](build-checklist.md#phase-1--terraform)
 
