@@ -7,7 +7,9 @@ RUN npm ci
 
 # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so
 # this must be a build arg, not just a runtime env var on the final image.
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+# Empty (the default) makes the bundle call same-origin /api, which keeps the
+# image environment-agnostic; docker-compose overrides it for local dev.
+ARG NEXT_PUBLIC_API_BASE_URL=
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 COPY . .
