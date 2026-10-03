@@ -57,6 +57,8 @@ SECRET
 
 install_argocd_app() {
   kubectl apply -f "${ROOT}/k8s/platform/argocd-application.yaml"
+  # Reports a comparison error until the staging branch exists.
+  kubectl apply -f "${ROOT}/k8s/platform/argocd-application-staging.yaml"
 }
 
 install_jenkins() {
