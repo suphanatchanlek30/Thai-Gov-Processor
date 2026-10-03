@@ -145,6 +145,26 @@ controller:
                   periodicFolderTrigger { interval('5m') }
                 }
               }
+          - script: |
+              // The Jenkins controller runs in UTC; the TZ= prefix makes the
+              // schedule 02:00 Thai time.
+              pipelineJob('terraform-drift') {
+                definition {
+                  cpsScm {
+                    scm {
+                      git {
+                        remote { url('https://github.com/suphanatchanlek30/Thai-Gov-Processor.git') }
+                        branch('*/main')
+                      }
+                    }
+                    scriptPath('ci/drift.Jenkinsfile')
+                    lightweight(true)
+                  }
+                }
+                triggers {
+                  cron('TZ=Asia/Bangkok\n0 2 * * *')
+                }
+              }
 
 persistence:
   enabled: true
