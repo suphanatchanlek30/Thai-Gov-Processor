@@ -14,10 +14,10 @@ resources:
 images:
   - name: thai-gov-processor-backend
     newName: 334177992720.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-processor-backend
-    newTag: c8b85a27
+    newTag: 4c026658
   - name: thai-gov-processor-frontend
     newName: 334177992720.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-processor-frontend
-    newTag: c8b85a27
+    newTag: 4c026658
 
 configMapGenerator:
   - name: backend-config
