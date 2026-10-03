@@ -43,3 +43,15 @@ variable "instance_type" {
   type    = string
   default = "m7i-flex.large"
 }
+
+variable "monthly_budget_usd" {
+  type    = string
+  default = "10"
+}
+
+# Set in terraform.tfvars (gitignored), never in a committed file. Empty only
+# in CI, which never applies; applying without it fails at the Budgets API.
+variable "budget_alert_email" {
+  type    = string
+  default = ""
+}

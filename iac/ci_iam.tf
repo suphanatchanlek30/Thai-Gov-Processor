@@ -37,6 +37,12 @@ data "aws_iam_policy_document" "tf_readonly" {
   }
 
   statement {
+    sid       = "ReadBudget"
+    actions   = ["budgets:ViewBudget", "budgets:ListTagsForResource"]
+    resources = ["*"]
+  }
+
+  statement {
     sid = "ReadRemainingInfra"
     actions = [
       "ec2:Describe*",
