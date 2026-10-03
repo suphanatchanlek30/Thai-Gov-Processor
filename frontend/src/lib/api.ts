@@ -13,7 +13,7 @@ export async function postForm<T>(path: string, body: FormData): Promise<T> {
     });
   } catch {
     throw new ApiError(
-      `Could not reach the API at ${API_BASE_URL}. Is the backend running?`
+      `Could not reach the API at ${API_BASE_URL || "this origin"}. Is the backend running?`
     );
   }
 

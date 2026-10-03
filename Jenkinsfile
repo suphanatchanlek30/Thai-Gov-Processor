@@ -36,10 +36,6 @@ pipeline {
     AWS_REGION = 'ap-southeast-1'
     ECR_REGISTRY = '334177992720.dkr.ecr.ap-southeast-1.amazonaws.com'
 
-    // Baked into the frontend bundle at build time (see frontend/Dockerfile).
-    // Must be the real public URL: an empty value falls back to localhost.
-    APP_URL = 'https://app.52-74-96-78.sslip.io'
-
     // Unfixed CVEs are ignored: nothing can be done about them in this repo,
     // so failing on them would block every PR until upstream ships a patch.
     TRIVY_ARGS = '--severity CRITICAL --ignore-unfixed --exit-code 1 --no-progress'
@@ -122,7 +118,6 @@ pipeline {
             buildctl-daemonless.sh build \
               --frontend dockerfile.v0 \
               --local context=frontend --local dockerfile=frontend \
-              --opt build-arg:NEXT_PUBLIC_API_BASE_URL=$APP_URL \
               --output type=docker,name=thai-gov-processor-frontend:$IMAGE_TAG,dest=build/frontend.tar
           '''
         }
