@@ -107,8 +107,8 @@ controller:
               - credentialsId: github-webhook-secret
 
       # Webhooks are the trigger; the 5 minute scan only catches a delivery
-      # that was lost. `main` and PRs only: a pushed feature branch without a
-      # PR builds nothing.
+      # that was lost. The long-lived branches and PRs only: a pushed feature branch
+      # without a PR builds nothing.
       jobs: |
         jobs:
           - script: |
@@ -127,7 +127,7 @@ controller:
                           gitHubBranchDiscovery { strategyId(1) }
                           gitHubPullRequestDiscovery { strategyId(1) }
                           headWildcardFilter {
-                            includes('main PR-*')
+                            includes('main staging dev PR-*')
                             excludes('')
                           }
                         }
