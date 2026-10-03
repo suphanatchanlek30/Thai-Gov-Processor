@@ -31,6 +31,30 @@ install_argocd() {
   kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
 }
 
+install_argocd_notifications() {
+  if ! kubectl -n jenkins get secret jenkins-ci-secrets >/dev/null 2>&1; then
+    echo "Secret jenkins-ci-secrets is missing: run scripts/create-ci-secrets.sh first" >&2
+    exit 1
+  fi
+
+  # Reuse the Discord webhook already held by jenkins-ci-secrets. The value
+  # is passed through still base64-encoded on stdin, never decoded or put
+  # on a command line.
+  local discord_b64
+  discord_b64="$(kubectl -n jenkins get secret jenkins-ci-secrets -o jsonpath='{.data.discord-webhook}')"
+  kubectl apply -f - <<SECRET
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-notifications-secret
+  namespace: argocd
+data:
+  discord-webhook-url: ${discord_b64}
+SECRET
+
+  kubectl apply --server-side --force-conflicts -f "${ROOT}/k8s/platform/argocd-notifications.yaml"
+}
+
 install_argocd_app() {
   kubectl apply -f "${ROOT}/k8s/platform/argocd-application.yaml"
 }
@@ -55,5 +79,6 @@ install_jenkins() {
 
 install_cert_manager
 install_argocd
+install_argocd_notifications
 install_argocd_app
 install_jenkins
