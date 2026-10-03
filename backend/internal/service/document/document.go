@@ -17,6 +17,9 @@ const pdfContentType = "application/pdf"
 type Service struct{}
 
 func NewService() service.DocumentService {
+	// Without this pdfcpu writes a config dir under $HOME and calls os.Exit(1)
+	// when it can't, which kills the whole API on a read-only root filesystem.
+	api.DisableConfigDir()
 	return Service{}
 }
 
