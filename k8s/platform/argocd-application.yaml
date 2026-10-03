@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: thai-gov
   namespace: argocd
+  annotations:
+    notifications.argoproj.io/subscribe.on-deployed.discord: ""
+    notifications.argoproj.io/subscribe.on-sync-failed.discord: ""
   finalizers:
     # Deleting the Application also deletes what it deployed, instead of
     # leaving orphaned resources that nothing manages any more.

@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  # $discord-webhook-url is resolved from argocd-notifications-secret.
+  service.webhook.discord: |
+    url: $discord-webhook-url
+    headers:
+      - name: Content-Type
+        value: application/json
+
+  template.discord-deployed: |
+    webhook:
+      discord:
+        method: POST
+        body: |
+          {"content": "✅ **{{.app.metadata.name}}** deployed: revision `{{.app.status.operationState.syncResult.revision | trunc 8}}` is {{.app.status.health.status}}"}
+
+  template.discord-sync-failed: |
+    webhook:
+      discord:
+        method: POST
+        body: |
+          {"content": "❌ **{{.app.metadata.name}}** sync {{.app.status.operationState.phase}} at revision `{{.app.status.operationState.syncResult.revision | trunc 8}}`: {{.app.status.operationState.message | replace "\"" "'" | replace "\n" " "}}"}
+
+  # Same conditions as the stock catalog triggers. oncePer keeps self-heal
+  # re-syncs of an unchanged revision from notifying again.
+  trigger.on-deployed: |
+    - description: Application is synced and healthy. Triggered once per commit.
+      oncePer: app.status.operationState?.syncResult?.revision
+      send:
+        - discord-deployed
+      when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+
+  trigger.on-sync-failed: |
+    - description: Application syncing has failed
+      oncePer: app.status.operationState?.syncResult?.revision
+      send:
+        - discord-sync-failed
+      when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
