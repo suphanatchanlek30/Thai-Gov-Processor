@@ -3,3 +3,6 @@ admin_cidr = "203.0.113.1/32" # your public IP + /32 (find it: curl checkip.amaz
 # Uncomment if your AWS account is still restricted to Free Tier instance
 # types (new accounts sometimes are, until billing verification completes):
 # instance_type = "t3.micro"
+
+# Where AWS Budgets sends the 80% / forecast alerts.
+budget_alert_email = "you@example.com"
