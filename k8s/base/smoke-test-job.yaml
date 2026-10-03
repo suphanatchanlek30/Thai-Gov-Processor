@@ -30,6 +30,15 @@ spec:
               echo
               curl -sS --fail --retry 5 --retry-delay 2 --retry-connrefused http://backend/api/v1/selftest
               echo
+              # merge-pdf once crashed the API on a read-only filesystem while
+              # /healthz stayed green, so exercise it with a real upload. No
+              # --retry: stdin cannot be replayed, and the calls above already
+              # waited for the backend.
+              echo "$PNG" | base64 -d | curl -sS --fail -F 'files[]=@-;filename=smoke.png;type=image/png' http://backend/api/v1/documents/merge-pdf
+              echo
+          env:
+            - name: PNG
+              value: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
           resources:
             requests:
               cpu: 10m
