@@ -1,0 +1,45 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: thai-gov-staging
+
+resources:
+  - ../../base
+  - namespace.yaml
+  - ingress.yaml
+
+# Jenkins rewrites newTag when a build on dev pushes new images; the staging
+# branch then carries that tag into this overlay and Argo CD deploys it.
+images:
+  - name: thai-gov-processor-backend
+    newName: 334177992720.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-processor-backend
+    newTag: dade6694
+  - name: thai-gov-processor-frontend
+    newName: 334177992720.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-processor-frontend
+    newTag: dade6694
+
+# One replica each and no HPA: the node has 2 vCPU shared with prod and CI.
+patches:
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: backend
+    patch: |-
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: backend
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+configMapGenerator:
+  - name: backend-config
+    behavior: merge
+    literals:
+      - S3_BUCKET=thai-gov-processor-uploads-334177992720
+      - CORS_ALLOWED_ORIGINS=https://staging.52-74-96-78.sslip.io
