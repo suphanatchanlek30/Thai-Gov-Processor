@@ -1,90 +1,73 @@
 # CI/CD Pipeline
 
-นี่คือส่วนที่โปรเจกต์นี้ให้ความสำคัญมากที่สุด ทุกอย่างที่ deploy เข้า production ต้องผ่าน pipeline นี้ก่อน ไม่มีการ SSH เข้าเครื่องแล้วแก้ไฟล์ตรงๆ
+ทุกอย่างที่ขึ้น production ผ่าน pipeline นี้ ไม่มีการ SSH เข้าเครื่องแล้วแก้ไฟล์ตรงๆ หลักคิด:
 
-## ภาพรวม 4 เลน
+1. **Jenkins ทำ CI เท่านั้น** ตรวจ, build, scan, push image แล้วเขียน tag ลง Git ไม่มีสิทธิ์เข้า cluster
+2. **Argo CD ทำ CD** อ่าน Git แล้ว sync เข้า cluster เอง (pull-based)
+3. **Build ครั้งเดียว** บน `dev` ส่วน staging และ prod แค่ย้าย tag ของ image ตัวเดิม
 
-```mermaid
-flowchart TB
-    subgraph L1["① Developer & GitHub"]
-        direction LR
-        a1["สร้าง branch<br/>feat/*"] --> a2["commit & push"] --> a3["เปิด Pull Request<br/>(branch protection)"] --> a4["GitHub webhook<br/>ลงนามด้วย HMAC secret"]
-    end
-
-    subgraph L2["② CI · PR pipeline (ตรวจอย่างเดียว ไม่ deploy)"]
-        direction LR
-        b1["Checkout"] --> b2["Lint<br/>go vet · golangci-lint<br/>eslint · tsc"] --> b3["Unit test<br/>go test -race -cover<br/>npm test"] --> b4["Build image<br/>BuildKit → .tar<br/>(ยังไม่ push)"] --> b5{{"🛡️ Trivy gate<br/>CRITICAL = fail"}} --> b6["Terraform<br/>fmt · validate · plan<br/>(ถ้าแก้ iac/)"] --> b7["ส่งสถานะ ✔/✘<br/>กลับไปที่ PR"]
-    end
-
-    subgraph L3["③ CI · main pipeline (build ของจริง)"]
-        direction LR
-        c1["Build image<br/>tag = git SHA"] --> c2{{"🛡️ Trivy gate<br/>สแกนซ้ำ"}} --> c3["Push ECR<br/>(IMMUTABLE)"] --> c4["แก้ tag ใน<br/>kustomization.yaml<br/>commit [skip ci]"] --> c5["แจ้ง Discord"]
-    end
-
-    subgraph L4["④ CD · Argo CD (GitOps)"]
-        direction LR
-        d1["ตรวจเจอ commit ใหม่<br/>(poll 3 นาที)"] --> d2["Sync เข้า<br/>ns: production"] --> d3["Rolling update<br/>maxUnavailable 0<br/>readinessProbe"] --> d4{{"🧪 Smoke test<br/>PostSync Job"}} --> d5["✅ แจ้งผล / ❌ git revert"]
-    end
-
-    a4 --> b1
-    b7 --> rv["👀 Code review + Merge"]
-    rv --> c1
-    c5 --> d1
-
-    classDef gate fill:#fde4e4,stroke:#b83030,color:#5c1414
-    classDef pr fill:#e8ebff,stroke:#3f4fc2,color:#1b2270
-    classDef main fill:#dff3f4,stroke:#0a7580,color:#053b40
-    classDef cd fill:#e3f4e8,stroke:#2b7f43,color:#14401f
-    class b1,b2,b3,b4,b6,b7 pr
-    class c1,c3,c4,c5 main
-    class d1,d2,d3,d5 cd
-    class b5,c2,d4 gate
-```
-
-กล่องหกเหลี่ยมสีแดงคือด่านตรวจ ถ้าไม่ผ่าน pipeline จะหยุดตรงนั้น
-
-## แต่ละขั้นทำอะไร
-
-| เลน | ขั้น | ทำอะไร | Tool | ถ้าไม่ผ่าน |
-| --- | --- | --- | --- | --- |
-| ② PR | Checkout | ดึงโค้ดของ PR เข้า agent pod | Jenkins, git | – |
-| ② PR | Lint | ตรวจรูปแบบโค้ดและ type error | `go vet`, golangci-lint, eslint, `tsc --noEmit` | หยุด ✘ |
-| ② PR | Unit test | ทดสอบ logic เช่น ไฟล์ออกมาต้อง ≤ 100 KB และขนาด 200×230 จริง | `go test -race -cover`, `npm test` | หยุด ✘ |
-| ② PR | Build image | ลอง build ให้แน่ใจว่า Dockerfile ใช้ได้ ผลลัพธ์เก็บเป็น `.tar` | BuildKit (rootless) | หยุด ✘ |
-| ② PR | Security gate | สแกนช่องโหว่ของ dependency, OS package และ secret ที่หลุดเข้าโค้ด | `trivy fs`, `trivy image --input` | บล็อก PR |
-| ② PR | Terraform | `fmt -check`, `validate`, `plan` ด้วย role แบบ read-only | Terraform | หยุด ✘ |
-| ② PR | Status | ส่ง ✔/✘ เป็น required status check ของ GitHub | GitHub Branch Source | ปุ่ม Merge ถูกล็อก |
-| ③ main | Build | build backend และ frontend ติด tag `a1b2c3d` (git SHA) | BuildKit | หยุด |
-| ③ main | Security gate | สแกน image ตัวสุดท้ายซ้ำ เผื่อมี CVE ใหม่ประกาศหลัง PR ผ่าน | Trivy | ไม่ push |
-| ③ main | Push | push ไฟล์ `.tar` ตัวเดียวกับที่สแกนแล้วขึ้น ECR | crane, IAM role | หยุด |
-| ③ main | Update manifest | แก้ `newTag` ใน `k8s/overlays/prod/kustomization.yaml` แล้ว commit กลับ | yq, git | หยุด |
-| ④ CD | Detect | Argo CD เห็นว่า Git ไม่ตรงกับ cluster | Argo CD | – |
-| ④ CD | Sync | apply manifest, self-heal ถ้ามีคนแก้ใน cluster ด้วยมือ | Argo CD | สถานะ OutOfSync |
-| ④ CD | Rolling update | สร้าง pod ใหม่ให้ ready ก่อน แล้วค่อยลบ pod เก่า | Deployment, readinessProbe | pod เก่ายังรับ traffic ต่อ |
-| ④ CD | Smoke test | Job เรียก `/healthz` และ `/api/v1/selftest` (แปลงรูปตัวอย่างจริง) | PostSync hook | sync = Failed → แจ้ง ❌ |
-| ④ CD | Rollback | `git revert` commit ที่แก้ tag แล้ว Argo sync กลับเวอร์ชันเดิม | git, Argo CD | – |
-
-> Build image ทำครั้งเดียวในเลน ③ แล้ว push ไฟล์ `.tar` ตัวที่ผ่าน Trivy ไปตรงๆ ไม่ build ซ้ำตอน push — กัน image ที่ขึ้น production เป็นคนละตัวกับที่สแกนผ่าน
-
-## GitOps: ทำไม Argo CD ถึงเป็นคนตัดสินใจ deploy
-
-Git คือ source of truth ของ production เสมอ Jenkins ไม่มีสิทธิ์เขียนเข้า cluster เลย มันแค่ commit image tag ใหม่กลับเข้า repo ส่วน Argo CD จะ poll repo แล้วเทียบกับสถานะจริงใน cluster ถ้าไม่ตรงกันถึงจะ sync
+## ภาพรวม
 
 ```mermaid
 flowchart LR
-    g1["Git ระบุว่า<br/>backend image = a1b2c3d"] --> g2["Argo CD ตรวจพบว่า<br/>Git กับ Cluster ไม่ตรงกัน"] --> g3["Argo CD Sync"] --> g4["K3s Pull image a1b2c3d จาก ECR"] --> g5["Production กลายเป็น Version a1b2c3d"]
+    F["feature/*"] -->|"PR · ci"| D["dev"]
+    D -->|"PR · verify"| S["staging"]
+    S -->|"PR · verify<br/>👤 คนกด merge = อนุมัติ prod"| M["main"]
+
+    D -.->|"build · scan · push<br/>bump tag staging"| ECR[("ECR · tag = git SHA")]
+    S ==>|"Argo CD sync"| SE["🧪 thai-gov-staging"]
+    M ==>|"promote tag → prod<br/>Argo CD sync"| PE["🚀 thai-gov (prod)"]
+    ECR -.-> SE
+    ECR -.-> PE
 ```
 
-Rollback ก็ทำผ่าน Git เหมือนกัน ไม่ต้องเข้า cluster:
+| Branch | บทบาท | environment |
+| --- | --- | --- |
+| `feature/*` | งานแต่ละชิ้น (PR เข้า `dev`) | ไม่มี |
+| `dev` | integration: build + scan + push image ที่นี่ที่เดียว | ไม่มี (เครื่องมี 2 vCPU ไม่พอสำหรับ environment ที่สาม) |
+| `staging` | ลองของที่ build แล้วก่อนขึ้นจริง | `thai-gov-staging` · `staging.<ip>.sslip.io` |
+| `main` | production | `thai-gov` · `app.<ip>.sslip.io` |
 
-```mermaid
-flowchart LR
-    r1["git revert"] --> r2["Git กลับไปเป็น tag เดิม"] --> r3["Argo CD Sync"] --> r4["Production กลับ Version ก่อนหน้า"]
-```
+## Jenkinsfile: 5 โหมด
 
-ข้อดีของแนวทางนี้: ทุก deploy และ rollback ตรวจสอบย้อนหลังได้จาก `git log` ล้วนๆ ไม่ต้องพึ่ง audit log ของ CI หรือ cluster เพิ่ม
+`Classify` เป็น stage แรก อ่าน branch / PR / commit บนสุด แล้วตั้ง `env.MODE` (เห็นเป็นบรรทัด `MODE=…` ใน console)
 
-## Deploy 1 ครั้งเกิดอะไรขึ้นบ้าง
+| เหตุการณ์ | MODE | ทำอะไร |
+| --- | --- | --- |
+| PR จาก feature เข้า `dev` | `ci` | lint → test → build `.tar` → Trivy gate → terraform plan (ถ้าแก้ `iac/`) |
+| PR `dev → staging` หรือ `staging → main` | `verify` | ตรวจว่า image ของ tag ที่ promote มีใน ECR ทั้ง backend และ frontend |
+| PR ที่แก้แต่ `docs/**` หรือ `*.md` | `skip` | รายงานผ่านโดยไม่ build |
+| push เข้า `dev` | `build` | CI เต็ม → push `.tar` ที่ scan แล้วขึ้น ECR → bump tag ใน `overlays/staging` บน `dev` |
+| push เข้า `staging` | `verify` | tag มากับ merge แล้ว ตรวจ ECR เฉยๆ |
+| push เข้า `main` | `promote` | คัดลอก tag staging → `overlays/prod` เฉพาะเมื่อ merge นี้เปลี่ยนไฟล์ staging overlay |
+| commit บนสุดมี `[skip ci]` (บอท) | `skip` | ข้าม (ไม่ใช้กับ PR) |
+
+| Stage | `ci` | `build` | `verify` | `promote` |
+| --- | :-: | :-: | :-: | :-: |
+| Classify | ✓ | ✓ | ✓ | ✓ |
+| CI: Prepare · Lint · Test · Build images · Trivy gate | ✓ | ✓ | | |
+| CI: Terraform plan (เฉพาะ PR ที่แก้ `iac/`) | ✓ | | | |
+| Push to ECR | | ✓ | | |
+| Bump staging tag | | ✓ | | |
+| Verify promoted image | | | ✓ | ✓ |
+| Promote to prod | | | | ✓ |
+
+### Stage ใน CI
+
+| Stage | ทำอะไร | Tool |
+| --- | --- | --- |
+| Prepare | ติดตั้ง libvips และ golangci-lint (bimg ใช้ cgo ทุกขั้นที่ compile ต้องมี header) | apt, golangci-lint v1.64.8 |
+| Lint (ขนาน) | backend: `gofmt`, `go vet`, golangci-lint · frontend: `next lint`, `tsc --noEmit` | golang, node |
+| Test | `go test -race -cover ./...` | golang |
+| Build images | build backend และ frontend เป็นไฟล์ `.tar` (ยังไม่ push) | BuildKit rootless |
+| Trivy gate | สแกนซอร์ส+secret และ image ทั้งสองไฟล์ ช่องโหว่ CRITICAL ที่มีแพตช์ → ล้ม (`--severity CRITICAL --ignore-unfixed --exit-code 1`) | Trivy |
+| Terraform plan | `fmt -check`, `validate`, `plan -lock=false` ด้วย user `tf-readonly` | Terraform |
+| Push to ECR | ขอ token ด้วย IAM role แล้วเขียน docker config เอง `crane push` ไฟล์ `.tar` **ตัวที่สแกนแล้ว** (ถ้า tag มีอยู่แล้วข้าม) | aws-cli, crane |
+| Bump staging tag | `sed` แก้ `newTag` (2 ที่) ใน `overlays/staging/kustomization.yaml` แล้ว commit `deploy <tag> [skip ci]` | git |
+
+Agent pod: `ci/agent-pod.yaml` มี 9 container (jnlp, tools, golang, node, buildkit, trivy, terraform, aws-cli, crane) pin เวอร์ชันทุกตัว สร้างตอน build แล้วลบทิ้ง Jenkins รันได้ทีละ agent (`containerCap: 1`)
+
+## Tag เดินทางอย่างไร
 
 ```mermaid
 sequenceDiagram
@@ -92,57 +75,102 @@ sequenceDiagram
     actor Dev as Developer
     participant GH as GitHub
     participant J as Jenkins
-    participant ECR as Amazon ECR
+    participant ECR as ECR
     participant A as Argo CD
-    participant K as K3s (production)
+    participant ST as staging
+    participant PR as prod
     participant D as Discord
 
-    Dev->>GH: merge PR เข้า main
-    GH->>J: webhook (push to main)
-    J->>J: build image → Trivy scan
-    J->>ECR: push thai-gov-backend:a1b2c3d
-    J->>GH: commit "deploy a1b2c3d [skip ci]"
-    GH-->>J: webhook อีกรอบ (ถูก scmSkip ข้าม)
-    J->>D: ✅ build ผ่าน
-    A->>GH: poll (ทุก 3 นาที)
-    A->>K: apply manifest ใหม่
-    K->>ECR: pull a1b2c3d
-    K->>K: rolling update + readinessProbe
-    A->>K: รัน smoke-test Job (PostSync)
-    alt smoke test ผ่าน
-        A->>D: ✅ a1b2c3d ขึ้น production แล้ว
-    else smoke test ไม่ผ่าน
-        A->>D: ❌ sync failed
-        Dev->>GH: git revert (commit ที่แก้ tag)
-        A->>K: sync กลับเวอร์ชันก่อนหน้า
-    end
+    Dev->>GH: merge PR เข้า dev
+    GH->>J: webhook (push dev) → MODE=build
+    J->>J: lint · test · build · Trivy
+    J->>ECR: push backend/frontend:aeafc224
+    J->>GH: commit "deploy aeafc224 [skip ci]" บน dev
+    J->>D: ✅ pushed, staging tag bumped
+    Dev->>GH: PR dev → staging (MODE=verify, ไม่ถึง 1 นาที) → merge
+    A->>ST: sync overlays/staging (tag aeafc224)
+    A->>ST: PostSync smoke test (healthz · selftest · merge-pdf)
+    A->>D: ✅ thai-gov-staging deployed
+    Dev->>GH: PR staging → main (verify) → merge = อนุมัติ
+    GH->>J: webhook (push main) → MODE=promote
+    J->>ECR: ตรวจว่าทั้งสอง image มีจริง
+    J->>GH: commit "deploy aeafc224 [skip ci]" บน main
+    J->>D: ✅ promoted to prod
+    A->>PR: sync overlays/prod → rolling update → smoke test
+    A->>D: ✅ thai-gov deployed
 ```
 
-## ประวัติ Git ที่เกิดขึ้นจริง
+commit `deploy … [skip ci]` ที่บอทสร้างทำให้เกิด webhook อีกรอบ Jenkins อ่าน commit บนสุดเจอ `[skip ci]` จึงตั้ง `MODE=skip` กันวนลูป
 
-```mermaid
-gitGraph
-    commit id: "init"
-    branch feat-ocsc-preset
-    checkout feat-ocsc-preset
-    commit id: "add OCSC preset"
-    commit id: "fix unit test"
-    checkout main
-    merge feat-ocsc-preset id: "merge PR #12"
-    commit id: "deploy a1b2c3d [skip ci]"
-    commit id: "revert: rollback a1b2c3d" type: REVERSE
+## กฎและด่าน
+
+| ด่าน | วิธีบังคับ |
+| --- | --- |
+| ต้องผ่าน PR และเช็ค `continuous-integration/jenkins/pr-merge` | GitHub rulesets `protect-dev`, `protect-staging`, `protect-main` |
+| merge ได้แบบ merge commit อย่างเดียว | `allowed_merge_methods: ["merge"]` squash ทำให้ประวัติเพี้ยนและชนกันทุกครั้งที่ promote |
+| PR เข้า `staging` ต้องมาจาก `dev`, เข้า `main` ต้องมาจาก `staging` | `Classify` ทำให้เช็คล้ม → PR BLOCKED (ruleset บังคับ branch ต้นทางไม่ได้) |
+| ห้ามลบ / force push | rulesets |
+| บอท Jenkins push commit `deploy … [skip ci]` ได้ | admin bypass ใน rulesets (PAT ของ admin) |
+
+## CD: Argo CD
+
+| Application | ติดตาม | ปลายทาง | policy |
+| --- | --- | --- | --- |
+| `thai-gov` | `main` · `k8s/overlays/prod` | ns `thai-gov` | auto sync · prune · self-heal · backend HPA 2–4 pod |
+| `thai-gov-staging` | `staging` · `k8s/overlays/staging` | ns `thai-gov-staging` | เหมือนกัน แต่ 1 replica ไม่มี HPA |
+
+- Argo CD ตรวจ Git ทุก ~3 นาที (สั่งทันทีด้วย annotation `argocd.argoproj.io/refresh=hard`) repo เป็น public จึงไม่ต้องมี credential
+- **Rolling update** `maxSurge: 1`, `maxUnavailable: 0` + readinessProbe `/healthz`
+- **PostSync smoke test** (Job ใน `k8s/base`): เรียก `/healthz`, `/api/v1/selftest` และอัปโหลด PNG เข้า `merge-pdf` ล้มเมื่อไรคือ sync ล้ม
+- **Self-heal:** แก้ของใน cluster ด้วยมือ Argo ดึงกลับให้ตรง Git
+- **Notifications** (Discord): `on-deployed` และ `on-sync-failed` ส่งครั้งเดียวต่อ revision (`oncePer`)
+- Argo CD ไม่ rollback ให้เองเมื่อ smoke test ล้ม แต่ pod เก่ายังรับ traffic ต่อเพราะ rolling update ไม่ลบตัวเก่าจนกว่าตัวใหม่จะ ready
+
+## Rollback
+
+```bash
+git checkout main && git pull
+git revert --no-commit <sha ของ commit "deploy <tag> [skip ci]" ล่าสุด>
+git commit -m "Revert deploy <tag> [skip ci]"
+git push origin main            # ต้องใช้สิทธิ์ admin bypass
 ```
+
+- **ต้องมี `[skip ci]`** ไม่งั้น Jenkins รัน `promote` ซ้ำจาก merge ล่าสุดแล้วเดินหน้าทับ (promote จึงทำงานเฉพาะเมื่อ merge เปลี่ยน tag ของ staging)
+- Argo เห็นภายใน ~3 นาที ถ้า revert กลับ (revert ของ revert) เร็วกว่านั้น Argo จะไม่ทันเห็นการเปลี่ยนแปลงเลย รอให้ pod เปลี่ยนก่อนแล้วค่อยย้อนกลับ
+- ทดสอบจริง: `dade6694 → 4c026658` และกลับ, pod ไม่ restart, smoke test ผ่าน
+
+## Infrastructure drift
+
+Jenkins job `terraform-drift` (`ci/drift.Jenkinsfile`, สร้างจาก JCasC) รันทุกคืน **02:00 เวลาไทย** (`TZ=Asia/Bangkok` เพราะ controller เป็น UTC): `terraform plan -detailed-exitcode -lock=false` ด้วย `tf-readonly` + `tf-admin-cidr` ชุดเดียวกับ PR plan
+
+| exit code | ความหมาย | ผล |
+| --- | --- | --- |
+| 0 | ตรงกับโค้ด | เขียว เงียบ |
+| 2 | มีคนแก้ AWS ด้วยมือ หรือโค้ดยังไม่ถูก `apply` | UNSTABLE + Discord ⚠️ |
+| 1 | ตัวตรวจพัง | FAILURE + Discord ❌ |
 
 ## เหตุการณ์ไหนทำให้อะไรรัน
 
-| เหตุการณ์ | สิ่งที่รัน | ขึ้นเว็บจริงไหม |
+| เหตุการณ์ | สิ่งที่รัน | ถึง prod ไหม |
 | --- | --- | --- |
-| push เข้า feature branch ที่ยังไม่เปิด PR | ไม่รันอะไร | ไม่ |
-| เปิด PR หรือ push เพิ่มเข้า PR | เลน ② (+ terraform plan ถ้าแก้ `iac/`) | ไม่ |
-| merge เข้า `main` | เลน ③ ต่อด้วยเลน ④ | ใช่ ภายในไม่กี่นาที |
-| commit ที่มี `[skip ci]` (Jenkins อัปเดต tag) | Jenkins ข้าม, Argo CD sync | ใช่ |
-| `git revert` บน `main` | Argo CD sync กลับเวอร์ชันเดิม | ใช่ = rollback |
-| ทุกคืน 02:00 | Terraform drift detect | ไม่ (แจ้งเตือนอย่างเดียว) |
-| สั่ง `terraform apply` จากเครื่อง | เปลี่ยน infrastructure | เปลี่ยน infra |
+| push feature branch ที่ยังไม่เปิด PR | ไม่รันอะไร | ไม่ |
+| เปิด PR / push เพิ่มเข้า PR | `ci` / `verify` / `skip` ตามชนิด PR | ไม่ |
+| merge เข้า `dev` | `build` | ไม่ (ไป staging ต้องเปิด PR) |
+| merge เข้า `staging` | `verify` + Argo sync staging | ไม่ |
+| merge เข้า `main` | `promote` + Argo sync prod | ใช่ ภายในไม่กี่นาที |
+| commit `[skip ci]` ของบอท | `skip` (Argo sync ตามปกติ) | ตามไฟล์ที่เปลี่ยน |
+| `git revert` บน `main` พร้อม `[skip ci]` | Argo sync กลับเวอร์ชันเดิม | ใช่ = rollback |
+| ทุกคืน 02:00 | drift check | ไม่ (แจ้งเตือนอย่างเดียว) |
 
-> Argo CD ไม่ rollback ให้เองเมื่อ smoke test ไม่ผ่าน มันจะแจ้งว่า sync failed แล้วต้อง `git revert` เอง ระหว่าง rolling update ถ้า pod ใหม่ไม่ ready ตัว Deployment จะไม่ลบ pod เก่า เว็บจึงไม่ล่ม
+## ทำไมออกแบบแบบนี้
+
+| การตัดสินใจ | เหตุผล |
+| --- | --- |
+| push ไฟล์ `.tar` ที่ scan แล้วด้วย `crane` ไม่ build ซ้ำ | ของที่ scan = ของที่ขึ้นจริง |
+| tag = git SHA 8 ตัว, ECR IMMUTABLE | ย้อนรอยได้ว่า pod รันโค้ดไหน และไม่ถูกเขียนทับ |
+| Jenkins เขียน tag ลง Git แทนที่จะสั่ง deploy | Git เป็นแหล่งความจริงเดียว ตรวจย้อนหลังด้วย `git log` |
+| `promote` อ่าน tag จาก staging overlay ไม่ใช้ git SHA ของ merge | merge commit ไม่ใช่ SHA ที่ build ไว้ |
+| อ่านข้อความ commit บนสุดเอง ไม่ใช้ `scmSkip` | `scmSkip` อ่านจาก changelog ซึ่งหลัง merge หลายครั้งมี commit ของฟีเจอร์ปน บอทเลยหลุดไป build |
+| ข้าม "แก้แต่เอกสาร" เฉพาะ PR | build บน branch เช็ค `HEAD^1` ซึ่งหลัง Jenkins รวมหลาย merge อาจเห็นแค่ merge สุดท้ายแล้วซ่อนโค้ดของ merge ก่อน |
+| merge commit อย่างเดียว | squash/rebase เขียนประวัติใหม่ ทำให้ promote ครั้งถัดไปชนกัน |
+| frontend เรียก `/api` แบบ same-origin | image เดียวใช้ได้ทั้ง staging และ prod (เดิมฝัง URL ตอน build) |
