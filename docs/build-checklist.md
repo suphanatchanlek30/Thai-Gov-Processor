@@ -99,11 +99,19 @@ flowchart LR
 
 ## Phase 5 · Argo CD
 
-- [ ] **Application** ชี้ไปที่ overlay `prod` เปิด auto sync, prune และ self-heal
-- [ ] **Notifications** ส่งเข้า Discord ตอน deployed และตอน sync failed
+- [x] **Application** ชี้ไปที่ overlay `prod` เปิด auto sync, prune และ self-heal
+  - ✅ ทดสอบจริง: Application `thai-gov` ชี้ `k8s/overlays/prod` บน `main` ได้ `Synced` / `Healthy`, smoke test (PostSync hook) ผ่านทุกครั้งที่ sync, deploy ทั้ง backend และ frontend โดยไม่มีใครรัน `kubectl apply`
+  - หมายเหตุ: Deployment ของ backend เคยตั้ง `replicas: 2` คู่กับ HPA ถ้า HPA scale ขึ้น self-heal จะ reset กลับเป็น 2 วนไปมา แก้โดยเอา `replicas` ออกให้ HPA คุมเอง (#34) ส่วน Application มี finalizer `resources-finalizer` เพื่อให้ลบ Application แล้วของที่ deploy ไว้ถูกลบตาม
+- [x] **Notifications** ส่งเข้า Discord ตอน deployed และตอน sync failed
+  - ✅ ทดสอบจริง: template `deployed` ส่งเข้า Discord ได้ (HTTP 204) และ log ของ controller ยืนยันว่า `oncePer` ทำงาน (deploy ครั้งเดียวไม่แจ้งซ้ำ), template `sync-failed` ส่งได้ (HTTP 204) ด้วย `argocd admin notifications template notify`
+  - หมายเหตุ: ยังไม่ได้ทำให้ sync ล้มจริงเพื่อดู trigger `on-sync-failed` ยิงเอง ทดสอบแค่ว่า template render และส่งได้ ส่วน trigger กับ `oncePer` ใช้เงื่อนไขเดียวกับ catalog ของ Argo CD v3.5.3
+  - หมายเหตุ: คำสั่งทดสอบ `template notify` พิมพ์ debug log ที่มี URL ของ webhook ออกมา เวลาทดสอบต้องกรอง output
 - เช็คทั้ง phase:
-  - `kubectl edit` เปลี่ยน replicas ด้วยมือ → Argo ต้องแก้กลับเอง
-  - `git revert` commit ที่แก้ tag → เว็บต้องกลับไปเป็นเวอร์ชันเดิม
+  - `kubectl edit` เปลี่ยน replicas ด้วยมือ → Argo ต้องแก้กลับเอง — ✅ ทดสอบจริงด้วย `kubectl scale deploy frontend --replicas=5` Argo ดึงกลับเป็น 2 เองภายในไม่กี่วินาที (ใช้ frontend ไม่ใช่ backend เพราะ HPA ของ backend จะปรับ replicas ให้เองจนแยกไม่ออกว่าเป็นฝีมือ Argo)
+  - `git revert` commit ที่แก้ tag → เว็บต้องกลับไปเป็นเวอร์ชันเดิม — ✅ revert commit `deploy dade6694` แล้ว push เข้า `main` พร้อม `[skip ci]` (ไม่ใส่ Jenkins จะ build ใหม่แล้วแก้ tag เดินหน้าทับ) ได้ image ของ backend และ frontend เปลี่ยนจาก `dade6694` เป็น `4c026658`, smoke test ผ่าน และ pod ไม่ restart จากนั้น revert กลับ
+  - หมายเหตุ: รอบแรก revert กลับเร็วเกินไป (~2 นาที) Argo ตรวจ Git ทุก ~3 นาที จึงไม่ทันเห็น revert ตัวแรกและไม่มีการย้อนเกิดขึ้นเลย (ดูจาก history ของ Argo ที่ไม่มี sync ของ commit นั้น) รอบสองสั่ง hard refresh (`argocd.argoproj.io/refresh=hard`) แล้วรอให้ pod เปลี่ยนก่อนค่อย revert กลับ
+  - หมายเหตุ: ระหว่างทางเจอบั๊กจริง 2 ตัว (1) `merge-pdf` ทำ backend ตายบน pod ที่ filesystem เป็น read-only เพราะ pdfcpu เขียน config ลง `$HOME` แล้ว `os.Exit(1)` Docker Compose ไม่เจอ แก้ด้วย `DisableConfigDir()` (#37) (2) node ดิสก์เต็ม (`DiskPressure`) เมื่อ build สองตัวรันพร้อมกัน แก้ด้วย `agent.containerCap: 1` (#38) นอกจากนี้ frontend เปลี่ยนให้เรียก `/api` แบบ same-origin (#36) เพื่อให้ image เดียวใช้ได้ทุก environment
+  - หมายเหตุ: `scmSkip` ที่กัน build วนลูปอ่านข้อความของ commit อื่นใน changelog ไม่ใช่ commit บนสุด ตอน merge หลาย PR ติดกันจึงมี build รอบเกินมา 1 รอบ (ไม่วนไม่รู้จบ) ยังไม่ได้แก้ จะรวมไว้ในงาน Jenkinsfile รอบหน้า
 
 ## Phase 6 · Drift detect และของเสริม
 
