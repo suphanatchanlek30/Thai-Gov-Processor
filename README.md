@@ -57,7 +57,7 @@
 | เลือก preset ระบบตั้งขนาด น้ำหนักไฟล์ให้ | Infrastructure ทั้งหมดเป็น Terraform (`apply` / `destroy` ได้ทั้งชุด) |
 | บีบไฟล์ให้ต่ำกว่าเกณฑ์ KB ด้วย binary search หา JPEG quality | Build **ครั้งเดียว** บน `dev` แล้ว promote tag เดิมขึ้น staging และ prod |
 | รวมรูป/PDF หลายไฟล์เป็น PDF เดียว (≤ 500 KB) | Trivy gate: ช่องโหว่ CRITICAL หยุด pipeline จริง |
-| ไฟล์หมดอายุเอง (S3 lifecycle 1 วัน, backend ลบต้นฉบับทันที) | GitOps: Git คือแหล่งความจริงเดียว rollback ด้วย `git revert` |
+| ต้นฉบับประมวลผลในหน่วยความจำ ไม่ถูกเก็บลง S3 เก็บเฉพาะผลลัพธ์ และหมดอายุเองใน 1 วัน | GitOps: Git คือแหล่งความจริงเดียว rollback ด้วย `git revert` |
 | ไม่เก็บถาวร ไม่ log ชื่อ/เนื้อหาไฟล์ (PDPA) | Zero-downtime rolling update + smoke test หลัง deploy |
 
 API: `GET /healthz` · `GET /api/v1/presets` · `GET /api/v1/selftest` · `POST /api/v1/photos/preset` · `POST /api/v1/documents/merge-pdf` ([docs/api-reference.md](docs/api-reference.md))
@@ -72,7 +72,7 @@ API: `GET /healthz` · `GET /api/v1/presets` · `GET /api/v1/selftest` · `POST 
 
 | ชั้น | อะไร | หน้าที่ |
 | --- | --- | --- |
-| Application | Next.js 15 (Tailwind) + Go 1.24 / Gin / libvips (bimg) / pdfcpu + S3 | ประมวลผลไฟล์ ผู้ใช้เรียก `/api` แบบ same-origin ผ่าน Ingress เดียวกัน |
+| Application | Next.js 15 (Tailwind) + Go 1.24 / Gin / libvips (bimg) / pdfcpu + Amazon S3 (เก็บเฉพาะผลลัพธ์) | ประมวลผลไฟล์ ผู้ใช้เรียก `/api` แบบ same-origin ผ่าน Ingress เดียวกัน |
 | Infrastructure | Terraform (state: S3 + lockfile) | VPC, EC2, Elastic IP, ECR, S3, IAM, Budgets ไม่แตะ application deployment |
 | Platform | K3s + Traefik + cert-manager | cluster, ingress, TLS จาก Let's Encrypt |
 | CI | Jenkins (Helm, agent เป็น pod ชั่วคราว) | lint, test, build (BuildKit rootless), scan (Trivy), push (crane) |
@@ -85,9 +85,46 @@ API: `GET /healthz` · `GET /api/v1/presets` · `GET /api/v1/selftest` · `POST 
 | Security group | 80/443 ทุกที่ · 6443 เฉพาะ IP ผู้ดูแล · **ไม่เปิด 22** (เข้าเครื่องผ่าน SSM) |
 | Namespaces | `thai-gov` (prod) · `thai-gov-staging` · `jenkins` · `argocd` · `cert-manager` |
 | ECR | `thai-gov-processor-backend` / `-frontend` · **IMMUTABLE** · scan on push · เก็บ 10 image ล่าสุด |
-| S3 | bucket ไฟล์ผู้ใช้ (block public access, SSE, lifecycle 1 วัน) · bucket เก็บ tfstate |
+| S3 | bucket ไฟล์ผลลัพธ์ (block public access, SSE, lifecycle 1 วัน) · bucket เก็บ tfstate |
 | Ingress | `app.` / `staging.` ไป frontend (`/`) และ backend (`/api`) · Jenkins เปิดสาธารณะเฉพาะ `/github-webhook/` |
 | Jenkins / Argo CD UI | ไม่เปิดสาธารณะ เข้าผ่าน `kubectl port-forward` |
+
+### ไฟล์ของผู้ใช้อยู่ที่ไหน: Amazon S3
+
+บน cloud (prod และ staging) ใช้ **Amazon S3 จริง** MinIO เป็นแค่ตัวจำลอง S3 ใน `docker-compose` ตอนรันบนเครื่องตัวเอง
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Browser
+    participant B as Backend (pod)
+    participant S3 as Amazon S3
+
+    U->>B: POST /api/v1/photos/preset หรือ /documents/merge-pdf (ต้นฉบับ)
+    B->>B: ประมวลผลในหน่วยความจำ (ต้นฉบับไม่ถูกเก็บลง S3)
+    B->>S3: PutObject processed/‹ชื่อไฟล์› ด้วย IAM role ของเครื่อง
+    B-->>U: JSON { download_url (presigned 1 ชม.), size_kb, ... }
+    U->>S3: GET ตามลิงก์ ดาวน์โหลดตรงจาก S3
+    Note over S3: lifecycle ลบไฟล์หลัง 1 วัน
+```
+
+| เรื่อง | ค่าจริง |
+| --- | --- |
+| สิ่งที่เก็บใน S3 | เฉพาะ **ผลลัพธ์** ใน `processed/` (ต้นฉบับประมวลผลในหน่วยความจำของ backend ไม่ถูกบันทึก) |
+| การป้องกัน bucket | block public access ทั้งหมด · เข้ารหัส SSE (AES256) · lifecycle ลบไฟล์หลัง 1 วัน + ลบ multipart ที่ค้าง |
+| สิทธิ์ของ backend | IAM role ของเครื่อง: `s3:GetObject` และ `s3:PutObject` เฉพาะ bucket นี้ (ไม่มี `DeleteObject` ตั้งใจ ให้ lifecycle เป็นคนลบ) ไม่มี access key ใน Git หรือ cluster |
+| ลิงก์ดาวน์โหลด | presigned URL อายุ 1 ชม. ชี้ไป `https://<bucket>.s3.ap-southeast-1.amazonaws.com/processed/…` |
+| ข้อควรรู้ | S3 นับวันหมดอายุโดยปัดไปเที่ยงคืน UTC และลบแบบ asynchronous ไฟล์ผลลัพธ์จึงอาจค้างประมาณ 1–2 วัน ไม่ใช่ 24 ชม. เป๊ะ |
+
+| | รันบนเครื่อง (`docker compose`) | cloud (prod / staging) |
+| --- | --- | --- |
+| Storage | MinIO (จำลอง S3 ไม่ต้องใช้บัญชี AWS) | Amazon S3 จริง |
+| `S3_ENDPOINT` | ตั้ง (`http://minio:9000`) | **ไม่ตั้ง** = ใช้ AWS |
+| Credential | static key (`minioadmin`) | IAM role ของ EC2 ผ่าน default credential chain |
+| presigned URL ชี้ไป | `http://localhost:9000` (`S3_PUBLIC_ENDPOINT`) | host ของ S3 |
+| Path style | `S3_FORCE_PATH_STYLE=true` | virtual-hosted |
+
+โค้ดที่เลือกแบบนี้อยู่ที่ `backend/internal/storage/storage.go`: มี `S3_ENDPOINT` → ใช้ endpoint กำหนดเองกับ static credential, ไม่มี → ใช้ S3 จริงด้วย credential chain เดียวกับที่ AWS CLI ใช้
 
 diagram แยกตาม tier และ sequence ของ request: [docs/architecture.md](docs/architecture.md)
 
@@ -175,7 +212,7 @@ Jenkins job `terraform-drift` รันทุกคืน **02:00 เวลา�
 | Container | non-root · `readOnlyRootFilesystem` · drop capabilities ทั้งหมด · seccomp `RuntimeDefault` · resource limits |
 | CI | agent เป็น pod ชั่วคราว (`numExecutors: 0` บน controller) · BuildKit rootless ไม่ใช้ Docker socket · Jenkins ไม่มีสิทธิ์ใน cluster |
 | Network / Host | เปิดแค่ 80/443 · K3s API เฉพาะ IP ผู้ดูแล · ไม่มี SSH (SSM) · IMDSv2 · EBS เข้ารหัส · Jenkins UI และ Argo CD UI ไม่เปิดสาธารณะ |
-| Data (PDPA) | S3 block public access + SSE · presigned URL 1 ชม. · backend ลบต้นฉบับทันที · ไม่ log เนื้อหาไฟล์ |
+| Data (PDPA) | ไม่เก็บต้นฉบับลง S3 (ประมวลผลในหน่วยความจำ) · ผลลัพธ์ใน S3: block public access + SSE + lifecycle 1 วัน · presigned URL 1 ชม. · ลบ EXIF · ไม่ log เนื้อหาไฟล์ |
 | Terraform | CI ใช้ user `tf-readonly` (อ่านอย่างเดียว) · drift detect ทุกคืน |
 
 รายละเอียดและตารางสิทธิ์: [docs/security.md](docs/security.md)
@@ -282,8 +319,9 @@ Jenkins job `terraform-drift` รันทุกคืน **02:00 เวลา�
 docker compose up --build
 # frontend  http://localhost:3000
 # backend   http://localhost:8080/healthz
-# MinIO     http://localhost:9001   (minioadmin / minioadmin)
+# MinIO     http://localhost:9001   (minioadmin / minioadmin) ใช้จำลอง S3 เฉพาะบนเครื่อง
 ```
+บน cloud ใช้ Amazon S3 จริง ดู [ไฟล์ของผู้ใช้อยู่ที่ไหน](#ไฟล์ของผู้ใช้อยู่ที่ไหน-amazon-s3) ถ้าอยากลอง S3 จริงจากเครื่อง (ตามโค้ดใน `storage.go` ยังไม่ได้ทดสอบ): ไม่ตั้ง `S3_ENDPOINT` และ `S3_ACCESS_KEY` แล้วรัน `cd backend && S3_BUCKET=<bucket ทดสอบ> S3_REGION=ap-southeast-1 AWS_PROFILE=<profile> go run ./cmd/api` (ใช้ bucket แยกจาก production)
 - backend: `cd backend && go test -race ./...` (ต้องมี `libvips-dev` และ `pkg-config` เพราะ bimg ใช้ cgo)
 - frontend: `cd frontend && npm ci && npm run dev` (ไม่ตั้ง `NEXT_PUBLIC_API_BASE_URL` = ใช้ `http://localhost:8080`; ตั้งเป็นค่าว่างบน cluster = เรียก `/api` แบบ same-origin)
 

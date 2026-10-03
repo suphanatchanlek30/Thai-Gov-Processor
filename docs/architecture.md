@@ -71,8 +71,8 @@ flowchart TB
             end
         end
         subgraph STORAGE_TIER ["🪣 Storage & Data Privacy"]
-            S3[("Amazon S3<br/>uploads/ · processed/")]:::storage
-            S3_Lifecycle["⏳ Lifecycle: expire after 1 day<br/>+ backend deletes originals<br/>(PDPA)"]:::security
+            S3[("Amazon S3<br/>processed/ (ผลลัพธ์เท่านั้น)")]:::storage
+            S3_Lifecycle["⏳ Lifecycle: expire after 1 day<br/>ต้นฉบับไม่ถูกเก็บลง S3 (ประมวลผลในหน่วยความจำ)<br/>(PDPA)"]:::security
             S3 --- S3_Lifecycle
         end
     end
@@ -102,8 +102,8 @@ flowchart TB
     Traefik -->|"jenkins.domain /github-webhook/ เท่านั้น"| Trigger
     BE_Svc --> Pod1
     BE_Svc --> Pod2
-    Pod1 -->|"store temp file"| S3
-    Pod2 -->|"store temp file"| S3
+    Pod1 -->|"PutObject ผลลัพธ์"| S3
+    Pod2 -->|"PutObject ผลลัพธ์"| S3
     S3 -.->|"presigned URL (1 h)"| UI_Preview
     UI_Preview -->|"download processed file"| User
 
@@ -148,7 +148,7 @@ flowchart TB
             end
         end
         ecr[("📦 ECR<br/>thai-gov-processor-backend<br/>thai-gov-processor-frontend")]
-        s3[("🪣 S3 ไฟล์ผู้ใช้<br/>uploads/ · processed/<br/>หมดอายุ 1 วัน")]
+        s3[("🪣 S3 ไฟล์ผลลัพธ์<br/>processed/<br/>หมดอายุ 1 วัน")]
         state[("🪣 S3 Terraform state")]
         iam["🔑 IAM role<br/>least privilege"]
     end

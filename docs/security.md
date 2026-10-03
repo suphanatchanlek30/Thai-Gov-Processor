@@ -13,7 +13,7 @@
 | Argo CD / Jenkins → Discord | ส่งแจ้งเตือน | URL ของ webhook | k8s Secret (`argocd-notifications-secret`, `jenkins-ci-secrets`) · ห้ามพิมพ์ลง log |
 | บอท Jenkins → GitHub | push commit `deploy … [skip ci]` ผ่านกฎของ branch | token ของ admin (fine-grained) + bypass ใน ruleset | Jenkins Credentials |
 | K3s → ECR | pull image | ecr-credential-provider + IAM role | ไม่มี key |
-| Backend → S3 | Put/Get/Delete เฉพาะ bucket เดียว | IAM role | ไม่มี key |
+| Backend → S3 | Get/Put เฉพาะ bucket เดียว (ไม่มี Delete ตั้งใจ ให้ lifecycle ลบ) | IAM role ของเครื่อง | ไม่มี key |
 | ผู้ดูแล → EC2 | shell | SSM Session Manager | ไม่ต้องมี SSH key |
 
 ## Security controls ตามชั้น
@@ -33,9 +33,9 @@
 
 | ข้อมูล | อยู่ที่ไหน | อยู่นานเท่าไร |
 | --- | --- | --- |
-| ไฟล์ต้นฉบับ | `uploads/` ใน S3 | backend ลบทันทีหลังประมวลผลเสร็จ, lifecycle เป็นตัวสำรอง |
-| ไฟล์ที่แปลงแล้ว | `processed/` ใน S3 | ลิงก์ดาวน์โหลดใช้ได้ 1 ชม., ไฟล์ถูกลบโดย lifecycle |
-| ไฟล์ระหว่างประมวลผล | `emptyDir` ใน pod | หายไปเมื่อ request จบ หรือเมื่อ pod ถูกลบ |
+| ไฟล์ต้นฉบับ | หน่วยความจำของ backend ระหว่าง request (ไม่ถูกเก็บลง S3) | หายเมื่อ request จบ |
+| ไฟล์ที่แปลงแล้ว | `processed/` ใน S3 | ลิงก์ดาวน์โหลดใช้ได้ 1 ชม., ไฟล์ถูกลบโดย lifecycle (1 วัน) |
+| ไฟล์ชั่วคราว | `/tmp` ที่เป็น `emptyDir` ของ pod (ใช้เมื่อ multipart ใหญ่เกินที่เก็บในหน่วยความจำ) | หายเมื่อ pod ถูกลบ |
 | Log | stdout ของ pod | ไม่ log ชื่อไฟล์เดิมหรือเนื้อหาไฟล์ |
 
-S3 นับวันหมดอายุโดยปัดไปเที่ยงคืน UTC และลบแบบ asynchronous ไฟล์จึงอาจค้างอยู่ประมาณ 1–2 วัน ไม่ใช่ 24 ชั่วโมงเป๊ะ ด้วยเหตุนี้ backend จึงลบไฟล์ต้นฉบับเองทันที และใช้ lifecycle เป็นตาข่ายรองรับอีกชั้น
+S3 นับวันหมดอายุโดยปัดไปเที่ยงคืน UTC และลบแบบ asynchronous ไฟล์ผลลัพธ์จึงอาจค้างอยู่ประมาณ 1–2 วัน ไม่ใช่ 24 ชั่วโมงเป๊ะ ส่วนไฟล์ต้นฉบับไม่เคยถูกเก็บลง S3 จึงไม่มีความเสี่ยงส่วนนี้ (ข้อมูลที่ค้างได้นานที่สุดคือผลลัพธ์ที่ผู้ใช้เพิ่งขอ)

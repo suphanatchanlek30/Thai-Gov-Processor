@@ -13,7 +13,7 @@
 
 ## 1. รันบนเครื่องตัวเองก่อน
 
-`docker compose up --build` รัน frontend, backend และ MinIO (แทน S3) เปิด `http://localhost:3000` แล้วแปลงรูป ก.พ. ได้โดยยังไม่แตะ AWS
+`docker compose up --build` รัน frontend, backend และ MinIO (จำลอง S3 เฉพาะบนเครื่อง) เปิด `http://localhost:3000` แล้วแปลงรูป ก.พ. ได้โดยยังไม่แตะ AWS บน cluster backend ใช้ Amazon S3 จริงด้วย IAM role ของเครื่อง (ไม่ตั้ง `S3_ENDPOINT`)
 
 ## 2. state bucket (ทำด้วยมือครั้งเดียว)
 
