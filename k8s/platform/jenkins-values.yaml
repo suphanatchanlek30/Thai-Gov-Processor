@@ -1,5 +1,11 @@
 # Values for the official jenkins/jenkins Helm chart (pinned in
 # scripts/bootstrap-cluster.sh). Only what differs from the chart defaults.
+agent:
+  # The node has 2 vCPU shared with the cluster itself. Two builds at once
+  # both slow to a crawl (CPU pegged at 99%), so the second waits in the queue
+  # and the pair finishes sooner than running side by side.
+  containerCap: 1
+
 controller:
   # Builds run in throwaway agent pods (Kubernetes plugin), never on the
   # controller itself: a build that eats memory or runs untrusted code must
