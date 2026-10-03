@@ -13,10 +13,10 @@ resources:
 images:
   - name: thai-gov-processor-backend
     newName: 334177992720.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-processor-backend
-    newTag: dade6694
+    newTag: c6905d53
   - name: thai-gov-processor-frontend
     newName: 334177992720.dkr.ecr.ap-southeast-1.amazonaws.com/thai-gov-processor-frontend
-    newTag: dade6694
+    newTag: c6905d53
 
 # One replica each and no HPA: the node has 2 vCPU shared with prod and CI.
 patches:
