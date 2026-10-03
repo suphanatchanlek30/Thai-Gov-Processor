@@ -118,6 +118,16 @@ pipeline {
           def source = env.CHANGE_BRANCH ?: ''
           def promotion = (target == 'staging' && source == 'dev') || (target == 'main' && source == 'staging')
 
+          // The flow is feature -> dev -> staging -> main. A feature PR straight
+          // into staging or main would skip the build-once step, so fail its
+          // check and leave the PR BLOCKED.
+          if (env.CHANGE_ID) {
+            def allowedSource = target == 'staging' ? 'dev' : (target == 'main' ? 'staging' : '')
+            if (allowedSource && source != allowedSource) {
+              error("PRs into ${target} must come from ${allowedSource}, not ${source}")
+            }
+          }
+
           // Only PRs can be judged docs-only. A queued branch build checks out the
           // branch head when it starts, so after several merges in a row
           // `HEAD^1 HEAD` shows only the last merge and could hide code from an
